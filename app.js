@@ -1,6 +1,46 @@
 const SUPABASE_URL = 'https://szbgewudwfaiwzbajzzg.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
+const SESSION_KEY = 'cheolan_triathlon_session';
+let authListener = null;
+const getSession = () => { try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } };
+const setSession = (session) => { if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session)); else localStorage.removeItem(SESSION_KEY); authListener?.(); };
+async function api(path, options = {}, useAuth = true) {
+  const session = getSession();
+  const headers = { apikey: SUPABASE_ANON_KEY, ...(options.headers || {}) };
+  if (useAuth && session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+  const response = await fetch(`${SUPABASE_URL}${path}`, { ...options, headers });
+  const text = await response.text(); let body = null; try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  if (!response.ok) return { data: null, error: { message: body?.message || body?.msg || text || `요청 오류 (${response.status})` } };
+  return { data: body, error: null };
+}
+class Query {
+  constructor(table, method = 'GET', body = null) { this.table = table; this.method = method; this.body = body; this.params = new URLSearchParams(); this.wantSingle = false; }
+  select(columns = '*') { this.params.set('select', columns); return this; }
+  eq(column, value) { this.params.append(column, `eq.${value}`); return this; }
+  order(column, options = {}) { this.params.set('order', `${column}.${options.ascending === false ? 'desc' : 'asc'}`); return this; }
+  single() { this.wantSingle = true; return this.execute(); }
+  async execute() { const query = this.params.toString(); const headers = { Accept: this.wantSingle ? 'application/vnd.pgrst.object+json' : 'application/json' }; if (this.method !== 'GET') headers['Content-Type'] = 'application/json'; if (this.method === 'POST' || this.method === 'PATCH') headers.Prefer = 'return=representation'; return api(`/rest/v1/${this.table}${query ? `?${query}` : ''}`, { method: this.method, headers, body: this.method === 'GET' ? undefined : JSON.stringify(this.body) }); }
+  then(resolve, reject) { return this.execute().then(resolve, reject); }
+}
+const supabase = {
+  auth: {
+    async signInWithPassword({ email, password }) { const result = await api('/auth/v1/token?grant_type=password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }, false); if (!result.error) setSession(result.data); return result; },
+    async signUp({ email, password, options = {} }) { const result = await api('/auth/v1/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, data: options.data || {} }) }, false); if (!result.error && result.data?.access_token) setSession(result.data); return result; },
+    async signOut() { setSession(null); return { error: null }; },
+    async getSession() { return { data: { session: getSession() } }; },
+    onAuthStateChange(callback) { authListener = callback; return { data: { subscription: { unsubscribe() {} } } }; },
+  },
+  from(table) {
+    return {
+      select(columns = '*') { return new Query(table).select(columns); },
+      insert(body) { return new Query(table, 'POST', body).execute(); },
+      update(body) { return new Query(table, 'PATCH', body); },
+      upsert(body) { return api(`/rest/v1/${table}?on_conflict=id`, { method: 'POST', headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(body) }); },
+    };
+  },
+  storage: { from(bucket) { return { upload: async (path, file) => { const result = await api(`/storage/v1/object/${bucket}/${path}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'false' }, body: file }); return { error: result.error }; }, getPublicUrl: (path) => ({ data: { publicUrl: `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}` } }) }; } },
+};
 const $ = (selector) => document.querySelector(selector);
 const main = $('#main-content');
 const kinds = {
