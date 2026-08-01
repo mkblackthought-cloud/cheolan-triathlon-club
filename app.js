@@ -54,7 +54,7 @@ const esc = (value = '') => String(value).replace(/[&<>'"]/g, (c) => ({ '&':'&am
 const n = (value) => Number(value || 0);
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 3200); }
 function nav(active) {
-  const items = [['record', '✚', '기록입력'], ['me', '◎', '내 점수'], ['team', '♜', '팀 점수']];
+  const items = [['record', '✚', '기록입력'], ['me', '◎', '개인 점수'], ['team', '♜', '팀 점수']];
   if (state.profile?.role === 'admin') items.push(['admin', '⚙', '관리'], ['approvals', '✓', '가입승인']);
   $('#bottom-nav').innerHTML = items.map(([id, icon, label]) => `<a href="#${id}" class="${active === id ? 'active' : ''}"><span>${icon}</span>${label}</a>`).join('');
 }
@@ -70,11 +70,12 @@ function completeBonus(size, together) {
   if (size === 3) return n(state.settings[together ? 'team3_group_workout_bonus' : 'team3_all_verified_bonus']);
   return 0;
 }
-function summaries() {
+function monthRecords() { const month = new Date().toISOString().slice(0, 7); return state.records.filter((r) => r.performed_on?.startsWith(month)); }
+function summaries(records = state.records) {
   const result = Object.fromEntries(state.athletes.map((p) => [p.id, { base: 0, member: 0, complete: 0, total: 0 }]));
   const members = {};
   state.athletes.forEach((p) => { if (p.team_id) (members[p.team_id] ||= []).push(p.id); });
-  const qualifying = state.records.filter((r) => baseScore(r) > 0);
+  const qualifying = records.filter((r) => baseScore(r) > 0);
   qualifying.forEach((r) => {
     const profile = state.athletes.find((p) => p.id === r.user_id);
     const item = result[r.user_id] ||= { base: 0, member: 0, complete: 0, total: 0 };
@@ -122,10 +123,10 @@ async function saveRecord(e) {
   const { error } = await supabase.from('workout_records').insert({ user_id: state.user.id, exercise_type: form.get('exercise_type'), amount: n(form.get('amount')), performed_on: form.get('performed_on'), memo: form.get('memo'), attachment_url, is_team_workout: form.get('is_team_workout') === 'on' });
   if (error) return toast(error.message); toast('운동 기록을 저장했습니다.'); await loadData(); recordPage();
 }
-function mePage() { nav('me'); const score = summaries()[state.user.id] || { base: 0, member: 0, complete: 0, total: 0 }; main.innerHTML = `<section class="page"><div class="hero"><p>${esc(state.profile.display_name)}님의 누계 점수</p><h1>${score.total}점</h1><p>운동 ${score.base}점 · 팀 구성 ${score.member}점 · 전원 인증 ${score.complete}점</p></div><div class="card" id="my-records"></div></section>`; renderRecords('#my-records', state.records.filter((r) => r.user_id === state.user.id)); }
+function mePage() { nav('me'); const month = new Date().toISOString().slice(0, 7); const scores = summaries(monthRecords()); const rows = state.athletes.map((p) => ({ profile: p, score: scores[p.id] || { total: 0 } })).sort((a, b) => b.score.total - a.score.total); main.innerHTML = `<section class="page"><div class="hero"><h1>${month} 개인 점수</h1><p>이번 달 가입 회원 전체의 점수입니다.</p></div><div class="card"><div class="table-wrap"><table><thead><tr><th>순위</th><th>이름</th><th>팀</th><th>점수</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.profile.display_name)}</td><td>${esc(state.teams.find((t) => t.id === r.profile.team_id)?.name || '-')}</td><td><b>${n(r.score.total)}점</b></td></tr>`).join('') || '<tr><td colspan="4">가입 회원이 없습니다.</td></tr>'}</tbody></table></div></div></section>`; }
 function teamPage() {
-  nav('team'); const scores = summaries(); const rows = state.teams.map((team) => { const people = state.athletes.filter((p) => p.team_id === team.id); const leader = state.athletes.find((p) => p.id === team.leader_id); return { team, people, leader, total: people.reduce((sum, p) => sum + n(scores[p.id]?.total), 0) }; }).sort((a, b) => b.total - a.total); const mine = state.teams.find((t) => t.leader_id === state.user.id);
-  main.innerHTML = `<section class="page"><div class="hero"><h1>팀 점수 현황</h1><p>3·4명 팀에만 팀 보너스가 적용됩니다.</p></div>${mine ? `<div class="card"><h2>내 팀 이름 변경</h2><form id="rename-form"><input name="name" value="${esc(mine.name)}" required maxlength="30"><button class="btn full">팀 이름 저장</button></form></div>` : ''}<div class="card"><div class="table-wrap"><table><thead><tr><th>순위</th><th>팀</th><th>인원 / 팀장</th><th>점수</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.team.name)}</td><td>${r.people.length}명${r.leader ? ` / ${esc(r.leader.display_name)}` : ''}</td><td><b>${r.total}점</b></td></tr>`).join('') || '<tr><td colspan="4">팀이 없습니다.</td></tr>'}</tbody></table></div></div></section>`;
+  const month = new Date().toISOString().slice(0, 7); nav('team'); const scores = summaries(monthRecords()); const rows = state.teams.map((team) => { const people = state.athletes.filter((p) => p.team_id === team.id); const leader = state.athletes.find((p) => p.id === team.leader_id); return { team, people, leader, total: people.reduce((sum, p) => sum + n(scores[p.id]?.total), 0) }; }).sort((a, b) => b.total - a.total); const mine = state.teams.find((t) => t.leader_id === state.user.id);
+  main.innerHTML = `<section class="page"><div class="hero"><h1>${month} 팀 점수</h1><p>이번 달 기록만 합산합니다. 3·4명 팀에만 팀 보너스가 적용됩니다.</p></div>${mine ? `<div class="card"><h2>내 팀 이름 변경</h2><form id="rename-form"><input name="name" value="${esc(mine.name)}" required maxlength="30"><button class="btn full">팀 이름 저장</button></form></div>` : ''}<div class="card"><div class="table-wrap"><table><thead><tr><th>순위</th><th>팀</th><th>인원 / 팀장</th><th>점수</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.team.name)}</td><td>${r.people.length}명${r.leader ? ` / ${esc(r.leader.display_name)}` : ''}</td><td><b>${r.total}점</b></td></tr>`).join('') || '<tr><td colspan="4">팀이 없습니다.</td></tr>'}</tbody></table></div></div></section>`;
   if (mine) $('#rename-form').onsubmit = async (e) => { e.preventDefault(); const { error } = await supabase.from('teams').update({ name: new FormData(e.target).get('name') }).eq('id', mine.id); if (error) return toast(error.message); await loadData(); teamPage(); };
 }
 function adminPage() {
