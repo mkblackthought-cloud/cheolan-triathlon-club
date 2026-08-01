@@ -59,7 +59,7 @@ function nav(active) {
 }
 function accountEmail(id) { return id.includes('@') ? id : `${id.toLowerCase()}@cheonantri.club`; }
 function topbar() {
-  $('#user-area').innerHTML = `<div class="user-tools">${state.profile?.role === 'admin' ? '<a class="btn outline small" href="#approvals">가입승인</a>' : ''}<span class="email">${esc(state.profile?.display_name || state.user?.email)}</span><button class="btn outline small" id="logout">로그아웃</button></div>`;
+  $('#user-area').innerHTML = `<div class="user-tools"><span class="email">${esc(state.profile?.display_name || state.user?.email)}</span><button class="btn outline small" id="logout">로그아웃</button></div>`;
   $('#logout').onclick = async () => { await supabase.auth.signOut(); location.hash = ''; };
 }
 function baseScore(record) { return n(record.amount) >= n(state.settings[`${record.exercise_type}_target`]) ? n(state.settings[`${record.exercise_type}_points`] ?? 1) : 0; }
@@ -161,7 +161,7 @@ async function loadData() {
   }
   if (profile.error || !profile.data) throw new Error('회원 프로필을 불러오지 못했습니다. 다시 시도해 주세요.');
   state.profile = profile.data;
-  const [records, settings, athletes, teams] = await Promise.all([supabase.from('workout_records').select('*').order('performed_on', { ascending: false }), supabase.from('club_settings').select('*').eq('id', 1).single(), supabase.from('profiles').select('*,teams(name)').order('display_name'), supabase.from('teams').select('*').order('name')]);
+  const [records, settings, athletes, teams] = await Promise.all([supabase.from('workout_records').select('*').order('performed_on', { ascending: false }), supabase.from('club_settings').select('*').eq('id', 1).single(), supabase.from('profiles').select('*').order('display_name'), supabase.from('teams').select('*').order('name')]);
   state.records = records.data || []; state.settings = settings.data || {}; state.athletes = athletes.data || []; state.teams = teams.data || [];
 }
 async function route() {
