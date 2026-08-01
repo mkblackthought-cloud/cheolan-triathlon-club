@@ -36,6 +36,7 @@ const supabase = {
       select(columns = '*') { return new Query(table).select(columns); },
       insert(body) { return new Query(table, 'POST', body).execute(); },
       update(body) { return new Query(table, 'PATCH', body); },
+      delete() { return new Query(table, 'DELETE'); },
       upsert(body) { return api(`/rest/v1/${table}?on_conflict=id`, { method: 'POST', headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(body) }); },
     };
   },
@@ -59,6 +60,7 @@ function nav(active) {
   $('#bottom-nav').innerHTML = items.map(([id, icon, label]) => `<a href="#${id}" class="${active === id ? 'active' : ''}"><span>${icon}</span>${label}</a>`).join('');
 }
 function accountEmail(id) { return id.includes('@') ? id : `${id.toLowerCase()}@cheonantri.club`; }
+function authPassword(password) { return password.length >= 6 ? password : `ctc-${password}`; }
 function topbar() {
   $('#user-area').innerHTML = `<div class="user-tools"><span class="email">${esc(state.profile?.display_name || state.user?.email)}</span><button class="btn outline small" id="logout">로그아웃</button></div>`;
   $('#logout').onclick = async () => { await supabase.auth.signOut(); location.hash = ''; };
@@ -99,24 +101,25 @@ function summaries(records = state.records) {
   Object.values(result).forEach((item) => { item.total = item.base + item.member + item.complete; });
   return result;
 }
-function renderRecords(root, records) {
+function renderRecords(root, records, allowDelete = false) {
   if (!records.length) { $(root).innerHTML = '<div class="empty">아직 등록된 운동이 없습니다.</div>'; return; }
-  $(root).innerHTML = records.map((r) => `<div class="record"><div class="record-icon">${kinds[r.exercise_type]?.[0] || '✓'}</div><div class="record-main"><b>${kinds[r.exercise_type]?.[1]} ${r.amount}${kinds[r.exercise_type]?.[2]}</b><small>${r.performed_on}${r.memo ? ` · ${esc(r.memo)}` : ''}</small></div><div class="record-score">+${baseScore(r)}점</div></div>`).join('');
+  $(root).innerHTML = records.map((r) => `<div class="record"><div class="record-icon">${kinds[r.exercise_type]?.[0] || '✓'}</div><div class="record-main"><b>${kinds[r.exercise_type]?.[1]} ${r.amount}${kinds[r.exercise_type]?.[2]}</b><small>${r.performed_on}${r.memo ? ` · ${esc(r.memo)}` : ''}</small></div><div class="record-score">+${baseScore(r)}점${allowDelete ? `<button class="btn outline small delete-record" data-id="${r.id}">삭제</button>` : ''}</div></div>`).join('');
+  if (allowDelete) document.querySelectorAll('.delete-record').forEach((button) => { button.onclick = async () => { if (!confirm('이 운동 기록을 삭제할까요?')) return; const { error } = await supabase.from('workout_records').delete().eq('id', button.dataset.id); if (error) return toast(error.message); toast('운동 기록을 삭제했습니다.'); await loadData(); recordPage(); }; });
 }
 function loginPage() {
   main.innerHTML = `<section class="login"><a class="brand" href="#"><img src="./club-logo.svg" alt="철안철인클럽 로고" style="width:42px;height:42px;border-radius:50%;object-fit:cover"><strong>철안철인클럽</strong></a><div class="card"><h2>운동기록 로그인</h2><form id="login-form"><div class="field"><label>아이디</label><input name="id" autocomplete="username" required></div><div class="field"><label>비밀번호</label><input name="password" type="password" autocomplete="current-password" required></div><button class="btn full">로그인</button></form><p class="hint">기존 이메일 계정도 그대로 로그인할 수 있습니다. 처음이신가요? <a href="#signup">회원가입</a></p></div></section>`;
-  $('#login-form').onsubmit = async (e) => { e.preventDefault(); const d = new FormData(e.target); const id = String(d.get('id')).trim(); const password = d.get('password'); let result = await supabase.auth.signInWithPassword({ email: accountEmail(id), password }); if (result.error && !id.includes('@')) result = await supabase.auth.signInWithPassword({ email: `${id.toLowerCase()}@cheonantri.local`, password }); if (result.error) toast('아이디 또는 비밀번호를 확인해 주세요.'); };
+  $('#login-form').onsubmit = async (e) => { e.preventDefault(); const d = new FormData(e.target); const id = String(d.get('id')).trim(); const password = d.get('password'); const emails = [accountEmail(id), ...(id.includes('@') ? [] : [`${id.toLowerCase()}@cheonantri.local`])]; const passwords = [...new Set([authPassword(password), password])]; let result = { error: { message: 'login failed' } }; for (const email of emails) { for (const candidate of passwords) { result = await supabase.auth.signInWithPassword({ email, password: candidate }); if (!result.error) return; } } toast('아이디 또는 비밀번호를 확인해 주세요.'); };
 }
 function signupPage() {
-  main.innerHTML = `<section class="login"><a class="brand" href="#"><img src="./club-logo.svg" alt="철안철인클럽 로고" style="width:42px;height:42px;border-radius:50%;object-fit:cover"><strong>철안철인클럽</strong></a><div class="card"><h2>회원가입</h2><form id="signup-form"><div class="field"><label>이름</label><input name="name" required></div><div class="field"><label>아이디 (영문·숫자·_ 4~20자)</label><input name="id" pattern="[A-Za-z0-9_]{4,20}" autocomplete="username" required></div><div class="field"><label>비밀번호 (8자 이상)</label><input name="password" type="password" minlength="8" autocomplete="new-password" required></div><button class="btn orange full">가입 신청</button></form><p class="hint">가입 후 관리자의 승인 전까지는 기록을 입력할 수 없습니다.</p></div></section>`;
-  $('#signup-form').onsubmit = async (e) => { e.preventDefault(); const d = new FormData(e.target); const username = String(d.get('id')).trim().toLowerCase(); const { error } = await supabase.auth.signUp({ email: accountEmail(username), password: d.get('password'), options: { data: { display_name: d.get('name'), username } } }); if (error) toast(`가입 실패: ${error.message}`); else toast('가입 신청이 완료되었습니다. 관리자 승인 후 이용할 수 있습니다.'); };
+  main.innerHTML = `<section class="login"><a class="brand" href="#"><img src="./club-logo.svg" alt="철안철인클럽 로고" style="width:42px;height:42px;border-radius:50%;object-fit:cover"><strong>철안철인클럽</strong></a><div class="card"><h2>회원가입</h2><form id="signup-form"><div class="field"><label>이름</label><input name="name" required></div><div class="field"><label>아이디 (영문·숫자·_ 3~20자)</label><input name="id" pattern="[A-Za-z0-9_]{3,20}" autocomplete="username" required></div><div class="field"><label>비밀번호 (4자 이상)</label><input name="password" type="password" minlength="4" autocomplete="new-password" required></div><button class="btn orange full">가입 신청</button></form><p class="hint">가입 후 관리자의 승인 전까지는 기록을 입력할 수 없습니다.</p></div></section>`;
+  $('#signup-form').onsubmit = async (e) => { e.preventDefault(); const d = new FormData(e.target); const username = String(d.get('id')).trim().toLowerCase(); const { error } = await supabase.auth.signUp({ email: accountEmail(username), password: authPassword(d.get('password')), options: { data: { display_name: d.get('name'), username } } }); if (error) toast(`가입 실패: ${error.message}`); else toast('가입 신청이 완료되었습니다. 관리자 승인 후 이용할 수 있습니다.'); };
 }
 function recordPage() {
   nav('record');
   main.innerHTML = `<section class="page"><div class="hero"><h1>오늘의 운동</h1><p>${esc(state.profile.display_name)}님의 운동 기록을 남겨보세요.</p></div><div class="card"><h2>운동 기록 입력</h2><form id="record-form"><div class="grid"><div class="field"><label>운동 종류</label><select name="exercise_type">${Object.entries(kinds).map(([key, v]) => `<option value="${key}">${v[0]} ${v[1]}</option>`).join('')}</select></div><div class="field"><label>운동 날짜</label><input name="performed_on" type="date" value="${new Date().toISOString().slice(0, 10)}" required></div></div><div class="field"><label>운동량</label><div class="input-addon"><input name="amount" type="number" min="0" step="0.1" required><span id="unit">km</span></div><p id="target-hint" class="hint"></p></div><div class="field"><label><input name="is_team_workout" type="checkbox" style="width:auto"> 팀원들과 함께 만나 운동했어요</label><p class="hint">팀 전원이 같은 날짜에 기준을 달성하고 모두 체크하면 동반 운동 보너스가 적용됩니다.</p></div><div class="field"><label>메모 (선택)</label><textarea name="memo"></textarea></div><div class="field"><label>운동 캡처 첨부 (선택, 최대 10MB)</label><input name="attachment" type="file" accept="image/*"></div><button class="btn orange full">운동 기록 저장</button></form></div><div class="section-title"><h2>최근 운동</h2></div><div class="card" id="recent-records"></div></section>`;
   const form = $('#record-form');
   const refresh = () => { const [,, unit] = kinds[form.exercise_type.value]; $('#unit').textContent = unit; $('#target-hint').textContent = `점수 기준: ${n(state.settings[`${form.exercise_type.value}_target`])}${unit} 이상 = ${n(state.settings[`${form.exercise_type.value}_points`] ?? 1)}점`; };
-  form.exercise_type.onchange = refresh; refresh(); renderRecords('#recent-records', state.records.filter((r) => r.user_id === state.user.id).slice(0, 5));
+  form.exercise_type.onchange = refresh; refresh(); renderRecords('#recent-records', state.records.filter((r) => r.user_id === state.user.id).slice(0, 5), true);
   form.onsubmit = saveRecord;
 }
 async function saveRecord(e) {
