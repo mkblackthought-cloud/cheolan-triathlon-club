@@ -16,7 +16,11 @@ async function api(path, options = {}, useAuth = true) {
   const session = getSession();
   const headers = { apikey: SUPABASE_ANON_KEY, ...(options.headers || {}) };
   if (useAuth && session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-  const response = await fetch(`${SUPABASE_URL}${path}`, { ...options, headers });
+  let response = await fetch(`${SUPABASE_URL}${path}`, { ...options, headers });
+  if (response.status === 401 && useAuth && session?.refresh_token && !path.startsWith('/auth/v1/token')) {
+    const refreshed = await refreshStoredSession();
+    if (refreshed?.access_token) { headers.Authorization = `Bearer ${refreshed.access_token}`; response = await fetch(`${SUPABASE_URL}${path}`, { ...options, headers }); }
+  }
   const text = await response.text(); let body = null; try { body = text ? JSON.parse(text) : null; } catch { body = text; }
   if (!response.ok) return { data: null, error: { message: body?.message || body?.msg || text || `요청 오류 (${response.status})` } };
   return { data: body, error: null };
@@ -189,7 +193,8 @@ async function loadData() {
   let profile = await supabase.from('profiles').select('*').eq('id', state.user.id).single();
   // Supabase 대시보드에서 직접 만든 로그인 계정에는 profiles 행이 없을 수 있습니다.
   // 첫 로그인 때 기본 회원 프로필을 만들어 기록 화면으로 바로 들어갈 수 있게 합니다.
-  if (profile.error || !profile.data) {
+  if (profile.error && !/0 rows|PGRST116|JSON object requested/i.test(profile.error.message || '')) throw new Error(`회원 프로필을 불러오지 못했습니다: ${profile.error.message}`);
+  if (!profile.data) {
     const fallbackName = state.user.user_metadata?.display_name || state.user.email?.split('@')[0] || '클럽 회원';
     const username = state.user.user_metadata?.username || null;
     const created = await supabase.from('profiles').insert({ id: state.user.id, display_name: fallbackName, username, is_approved: false });
