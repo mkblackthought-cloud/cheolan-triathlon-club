@@ -57,7 +57,7 @@ function nav(active) {
   if (state.profile?.role === 'admin') items.push(['admin', '⚙', '관리'], ['approvals', '✓', '가입승인']);
   $('#bottom-nav').innerHTML = items.map(([id, icon, label]) => `<a href="#${id}" class="${active === id ? 'active' : ''}"><span>${icon}</span>${label}</a>`).join('');
 }
-function accountEmail(id) { return id.includes('@') ? id : `${id.toLowerCase()}@cheonantri.local`; }
+function accountEmail(id) { return id.includes('@') ? id : `${id.toLowerCase()}@cheonantri.club`; }
 function topbar() {
   $('#user-area').innerHTML = `<div class="user-tools"><span class="email">${esc(state.profile?.display_name || state.user?.email)}</span><button class="btn outline small" id="logout">로그아웃</button></div>`;
   $('#logout').onclick = async () => { await supabase.auth.signOut(); location.hash = ''; };
@@ -105,7 +105,7 @@ function loginPage() {
 }
 function signupPage() {
   main.innerHTML = `<section class="login"><a class="brand" href="#"><span>TC</span><strong>철안철인클럽</strong></a><div class="card"><h2>회원가입</h2><form id="signup-form"><div class="field"><label>이름</label><input name="name" required></div><div class="field"><label>아이디 (영문·숫자·_ 4~20자)</label><input name="id" pattern="[A-Za-z0-9_]{4,20}" autocomplete="username" required></div><div class="field"><label>비밀번호 (8자 이상)</label><input name="password" type="password" minlength="8" autocomplete="new-password" required></div><button class="btn orange full">가입 신청</button></form><p class="hint">가입 후 관리자의 승인 전까지는 기록을 입력할 수 없습니다.</p></div></section>`;
-  $('#signup-form').onsubmit = async (e) => { e.preventDefault(); const d = new FormData(e.target); const username = String(d.get('id')).trim().toLowerCase(); const { error } = await supabase.auth.signUp({ email: accountEmail(username), password: d.get('password'), options: { data: { display_name: d.get('name'), username } } }); if (error) toast('이미 사용 중인 아이디이거나 가입 처리에 실패했습니다.'); else toast('가입 신청이 완료되었습니다. 관리자 승인 후 이용할 수 있습니다.'); };
+  $('#signup-form').onsubmit = async (e) => { e.preventDefault(); const d = new FormData(e.target); const username = String(d.get('id')).trim().toLowerCase(); const { error } = await supabase.auth.signUp({ email: accountEmail(username), password: d.get('password'), options: { data: { display_name: d.get('name'), username } } }); if (error) toast(`가입 실패: ${error.message}`); else toast('가입 신청이 완료되었습니다. 관리자 승인 후 이용할 수 있습니다.'); };
 }
 function recordPage() {
   nav('record');
