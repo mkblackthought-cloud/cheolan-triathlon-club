@@ -59,7 +59,7 @@ function nav(active) {
 }
 function accountEmail(id) { return id.includes('@') ? id : `${id.toLowerCase()}@cheonantri.club`; }
 function topbar() {
-  $('#user-area').innerHTML = `<div class="user-tools"><span class="email">${esc(state.profile?.display_name || state.user?.email)}</span><button class="btn outline small" id="logout">로그아웃</button></div>`;
+  $('#user-area').innerHTML = `<div class="user-tools">${state.profile?.role === 'admin' ? '<a class="btn outline small" href="#approvals">가입승인</a>' : ''}<span class="email">${esc(state.profile?.display_name || state.user?.email)}</span><button class="btn outline small" id="logout">로그아웃</button></div>`;
   $('#logout').onclick = async () => { await supabase.auth.signOut(); location.hash = ''; };
 }
 function baseScore(record) { return n(record.amount) >= n(state.settings[`${record.exercise_type}_target`]) ? n(state.settings[`${record.exercise_type}_points`] ?? 1) : 0; }
