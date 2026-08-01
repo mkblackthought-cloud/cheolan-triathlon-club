@@ -136,8 +136,18 @@ async function assignTeam(e) { e.preventDefault(); const data = Object.fromEntri
 async function createTeam(e) { e.preventDefault(); const { error } = await supabase.from('teams').insert({ name: new FormData(e.target).get('name') }); if (error) return toast(error.message); await loadData(); adminPage(); }
 async function setLeader(e) { e.preventDefault(); const data = Object.fromEntries(new FormData(e.target)); const { error } = await supabase.from('teams').update({ leader_id: data.leader_id }).eq('id', data.team_id); if (error) return toast(error.message); toast('팀장을 지정했습니다.'); await loadData(); adminPage(); }
 async function loadData() {
-  const profile = await supabase.from('profiles').select('*,teams(name)').eq('id', state.user.id).single();
-  if (profile.error || !profile.data) throw new Error('회원 프로필을 불러오지 못했습니다. Supabase에서 이 계정의 프로필을 확인해 주세요.');
+  let profile = await supabase.from('profiles').select('*').eq('id', state.user.id).single();
+  // Supabase 대시보드에서 직접 만든 로그인 계정에는 profiles 행이 없을 수 있습니다.
+  // 첫 로그인 때 기본 회원 프로필을 만들어 기록 화면으로 바로 들어갈 수 있게 합니다.
+  if (profile.error || !profile.data) {
+    const fallbackName = state.user.user_metadata?.display_name || state.user.email?.split('@')[0] || '클럽 회원';
+    const created = await supabase.from('profiles').insert({ id: state.user.id, display_name: fallbackName });
+    if (created.error && !/duplicate|unique/i.test(created.error.message || '')) {
+      throw new Error(`회원 프로필을 만들지 못했습니다: ${created.error.message}`);
+    }
+    profile = await supabase.from('profiles').select('*').eq('id', state.user.id).single();
+  }
+  if (profile.error || !profile.data) throw new Error('회원 프로필을 불러오지 못했습니다. 다시 시도해 주세요.');
   state.profile = profile.data;
   const [records, settings, athletes, teams] = await Promise.all([supabase.from('workout_records').select('*').order('performed_on', { ascending: false }), supabase.from('club_settings').select('*').eq('id', 1).single(), supabase.from('profiles').select('*,teams(name)').order('display_name'), supabase.from('teams').select('*').order('name')]);
   state.records = records.data || []; state.settings = settings.data || {}; state.athletes = athletes.data || []; state.teams = teams.data || [];
