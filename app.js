@@ -54,9 +54,10 @@ const n = (value) => Number(value || 0);
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 3200); }
 function nav(active) {
   const items = [['record', '✚', '기록입력'], ['me', '◎', '내 점수'], ['team', '♜', '팀 점수']];
-  if (state.profile?.role === 'admin') items.push(['admin', '⚙', '관리']);
+  if (state.profile?.role === 'admin') items.push(['admin', '⚙', '관리'], ['approvals', '✓', '가입승인']);
   $('#bottom-nav').innerHTML = items.map(([id, icon, label]) => `<a href="#${id}" class="${active === id ? 'active' : ''}"><span>${icon}</span>${label}</a>`).join('');
 }
+function accountEmail(id) { return id.includes('@') ? id : `${id.toLowerCase()}@cheonantri.local`; }
 function topbar() {
   $('#user-area').innerHTML = `<div class="user-tools"><span class="email">${esc(state.profile?.display_name || state.user?.email)}</span><button class="btn outline small" id="logout">로그아웃</button></div>`;
   $('#logout').onclick = async () => { await supabase.auth.signOut(); location.hash = ''; };
@@ -99,12 +100,12 @@ function renderRecords(root, records) {
   $(root).innerHTML = records.map((r) => `<div class="record"><div class="record-icon">${kinds[r.exercise_type]?.[0] || '✓'}</div><div class="record-main"><b>${kinds[r.exercise_type]?.[1]} ${r.amount}${kinds[r.exercise_type]?.[2]}</b><small>${r.performed_on}${r.memo ? ` · ${esc(r.memo)}` : ''}</small></div><div class="record-score">+${baseScore(r)}점</div></div>`).join('');
 }
 function loginPage() {
-  main.innerHTML = `<section class="login"><a class="brand" href="#"><span>TC</span><strong>철안철인클럽</strong></a><div class="card"><h2>운동기록 로그인</h2><form id="login-form"><div class="field"><label>이메일</label><input name="email" type="email" required></div><div class="field"><label>비밀번호</label><input name="password" type="password" required></div><button class="btn full">로그인</button></form><p class="hint">처음이신가요? <a href="#signup">회원가입</a></p></div></section>`;
-  $('#login-form').onsubmit = async (e) => { e.preventDefault(); const d = new FormData(e.target); const { error } = await supabase.auth.signInWithPassword({ email: d.get('email'), password: d.get('password') }); if (error) toast(error.message); };
+  main.innerHTML = `<section class="login"><a class="brand" href="#"><span>TC</span><strong>철안철인클럽</strong></a><div class="card"><h2>운동기록 로그인</h2><form id="login-form"><div class="field"><label>아이디</label><input name="id" autocomplete="username" required></div><div class="field"><label>비밀번호</label><input name="password" type="password" autocomplete="current-password" required></div><button class="btn full">로그인</button></form><p class="hint">기존 이메일 계정도 그대로 로그인할 수 있습니다. 처음이신가요? <a href="#signup">회원가입</a></p></div></section>`;
+  $('#login-form').onsubmit = async (e) => { e.preventDefault(); const d = new FormData(e.target); const { error } = await supabase.auth.signInWithPassword({ email: accountEmail(String(d.get('id')).trim()), password: d.get('password') }); if (error) toast('아이디 또는 비밀번호를 확인해 주세요.'); };
 }
 function signupPage() {
-  main.innerHTML = `<section class="login"><a class="brand" href="#"><span>TC</span><strong>철안철인클럽</strong></a><div class="card"><h2>회원가입</h2><form id="signup-form"><div class="field"><label>이름</label><input name="name" required></div><div class="field"><label>이메일</label><input name="email" type="email" required></div><div class="field"><label>비밀번호 (8자 이상)</label><input name="password" type="password" minlength="8" required></div><button class="btn orange full">회원가입</button></form></div></section>`;
-  $('#signup-form').onsubmit = async (e) => { e.preventDefault(); const d = new FormData(e.target); const { error } = await supabase.auth.signUp({ email: d.get('email'), password: d.get('password'), options: { data: { display_name: d.get('name') } } }); if (error) toast(error.message); else toast('가입 확인 이메일을 확인해 주세요.'); };
+  main.innerHTML = `<section class="login"><a class="brand" href="#"><span>TC</span><strong>철안철인클럽</strong></a><div class="card"><h2>회원가입</h2><form id="signup-form"><div class="field"><label>이름</label><input name="name" required></div><div class="field"><label>아이디 (영문·숫자·_ 4~20자)</label><input name="id" pattern="[A-Za-z0-9_]{4,20}" autocomplete="username" required></div><div class="field"><label>비밀번호 (8자 이상)</label><input name="password" type="password" minlength="8" autocomplete="new-password" required></div><button class="btn orange full">가입 신청</button></form><p class="hint">가입 후 관리자의 승인 전까지는 기록을 입력할 수 없습니다.</p></div></section>`;
+  $('#signup-form').onsubmit = async (e) => { e.preventDefault(); const d = new FormData(e.target); const username = String(d.get('id')).trim().toLowerCase(); const { error } = await supabase.auth.signUp({ email: accountEmail(username), password: d.get('password'), options: { data: { display_name: d.get('name'), username } } }); if (error) toast('이미 사용 중인 아이디이거나 가입 처리에 실패했습니다.'); else toast('가입 신청이 완료되었습니다. 관리자 승인 후 이용할 수 있습니다.'); };
 }
 function recordPage() {
   nav('record');
@@ -135,13 +136,24 @@ async function saveSettings(e) { e.preventDefault(); const data = Object.fromEnt
 async function assignTeam(e) { e.preventDefault(); const data = Object.fromEntries(new FormData(e.target)); const { error } = await supabase.from('profiles').update({ team_id: data.team_id || null }).eq('id', data.user_id); if (error) return toast(error.message); await loadData(); adminPage(); }
 async function createTeam(e) { e.preventDefault(); const { error } = await supabase.from('teams').insert({ name: new FormData(e.target).get('name') }); if (error) return toast(error.message); await loadData(); adminPage(); }
 async function setLeader(e) { e.preventDefault(); const data = Object.fromEntries(new FormData(e.target)); const { error } = await supabase.from('teams').update({ leader_id: data.leader_id }).eq('id', data.team_id); if (error) return toast(error.message); toast('팀장을 지정했습니다.'); await loadData(); adminPage(); }
+function pendingPage() {
+  $('#bottom-nav').innerHTML = '';
+  main.innerHTML = `<section class="page"><div class="card"><h2>가입 승인 대기 중</h2><p>관리자가 가입을 승인하면 운동 기록과 점수 화면을 이용할 수 있습니다.</p><button class="btn outline full" id="logout">로그아웃</button></div></section>`;
+  $('#logout').onclick = async () => { await supabase.auth.signOut(); };
+}
+function approvalsPage() {
+  nav('approvals'); const pending = state.athletes.filter((p) => !p.is_approved);
+  main.innerHTML = `<section class="page"><div class="hero"><h1>가입 승인</h1><p>신규 회원을 확인한 뒤 승인해 주세요.</p></div><div class="card"><div class="table-wrap"><table><thead><tr><th>이름</th><th>아이디</th><th>가입일</th><th></th></tr></thead><tbody>${pending.map((p) => `<tr><td>${esc(p.display_name)}</td><td>${esc(p.username || '-')}</td><td>${String(p.created_at || '').slice(0, 10)}</td><td><button class="btn small approve" data-id="${p.id}">승인</button></td></tr>`).join('') || '<tr><td colspan="4">승인 대기 중인 회원이 없습니다.</td></tr>'}</tbody></table></div></div></section>`;
+  document.querySelectorAll('.approve').forEach((button) => { button.onclick = async () => { const { error } = await supabase.from('profiles').update({ is_approved: true }).eq('id', button.dataset.id); if (error) return toast(error.message); toast('가입을 승인했습니다.'); await loadData(); approvalsPage(); }; });
+}
 async function loadData() {
   let profile = await supabase.from('profiles').select('*').eq('id', state.user.id).single();
   // Supabase 대시보드에서 직접 만든 로그인 계정에는 profiles 행이 없을 수 있습니다.
   // 첫 로그인 때 기본 회원 프로필을 만들어 기록 화면으로 바로 들어갈 수 있게 합니다.
   if (profile.error || !profile.data) {
     const fallbackName = state.user.user_metadata?.display_name || state.user.email?.split('@')[0] || '클럽 회원';
-    const created = await supabase.from('profiles').insert({ id: state.user.id, display_name: fallbackName });
+    const username = state.user.user_metadata?.username || null;
+    const created = await supabase.from('profiles').insert({ id: state.user.id, display_name: fallbackName, username, is_approved: false });
     if (created.error && !/duplicate|unique/i.test(created.error.message || '')) {
       throw new Error(`회원 프로필을 만들지 못했습니다: ${created.error.message}`);
     }
@@ -155,7 +167,7 @@ async function loadData() {
 async function route() {
   const { data: { session } } = await supabase.auth.getSession(); state.user = session?.user || null;
   if (!state.user) { $('#user-area').innerHTML = ''; $('#bottom-nav').innerHTML = ''; return location.hash === '#signup' ? signupPage() : loginPage(); }
-  try { await loadData(); topbar(); const page = location.hash.slice(1) || 'record'; if (page === 'admin' && state.profile.role !== 'admin') return recordPage(); ({ record: recordPage, me: mePage, team: teamPage, admin: adminPage }[page] || recordPage)(); } catch (error) { main.innerHTML = `<section class="page"><div class="card"><h2>접속 오류</h2><p>${esc(error.message)}</p><button class="btn full" id="retry">다시 시도</button></div></section>`; $('#retry').onclick = route; }
+  try { await loadData(); topbar(); if (state.profile.role !== 'admin' && !state.profile.is_approved) return pendingPage(); const page = location.hash.slice(1) || 'record'; if (['admin', 'approvals'].includes(page) && state.profile.role !== 'admin') return recordPage(); ({ record: recordPage, me: mePage, team: teamPage, admin: adminPage, approvals: approvalsPage }[page] || recordPage)(); } catch (error) { main.innerHTML = `<section class="page"><div class="card"><h2>접속 오류</h2><p>${esc(error.message)}</p><button class="btn full" id="retry">다시 시도</button></div></section>`; $('#retry').onclick = route; }
 }
 window.addEventListener('hashchange', route);
 supabase.auth.onAuthStateChange(() => route());
