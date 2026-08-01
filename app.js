@@ -5,6 +5,13 @@ const SESSION_KEY = 'cheolan_triathlon_session';
 let authListener = null;
 const getSession = () => { try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } };
 const setSession = (session) => { if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session)); else localStorage.removeItem(SESSION_KEY); authListener?.(); };
+async function refreshStoredSession() {
+  const session = getSession();
+  if (!session?.refresh_token) return null;
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, { method: 'POST', headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: session.refresh_token }) });
+  if (!response.ok) { setSession(null); return null; }
+  const refreshed = await response.json(); setSession(refreshed); return refreshed;
+}
 async function api(path, options = {}, useAuth = true) {
   const session = getSession();
   const headers = { apikey: SUPABASE_ANON_KEY, ...(options.headers || {}) };
@@ -28,7 +35,7 @@ const supabase = {
     async signInWithPassword({ email, password }) { const result = await api('/auth/v1/token?grant_type=password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }, false); if (!result.error) setSession(result.data); return result; },
     async signUp({ email, password, options = {} }) { const result = await api('/auth/v1/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, data: options.data || {} }) }, false); if (!result.error && result.data?.access_token) setSession(result.data); return result; },
     async signOut() { setSession(null); return { error: null }; },
-    async getSession() { return { data: { session: getSession() } }; },
+    async getSession() { let session = getSession(); if (session?.expires_at && Number(session.expires_at) * 1000 <= Date.now() + 30_000) session = await refreshStoredSession(); return { data: { session } }; },
     onAuthStateChange(callback) { authListener = callback; return { data: { subscription: { unsubscribe() {} } } }; },
   },
   from(table) {
