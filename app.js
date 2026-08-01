@@ -39,6 +39,7 @@ const supabase = {
       upsert(body) { return api(`/rest/v1/${table}?on_conflict=id`, { method: 'POST', headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(body) }); },
     };
   },
+  rpc(name, args = {}) { return api(`/rest/v1/rpc/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) }); },
   storage: { from(bucket) { return { upload: async (path, file) => { const result = await api(`/storage/v1/object/${bucket}/${path}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'false' }, body: file }); return { error: result.error }; }, getPublicUrl: (path) => ({ data: { publicUrl: `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}` } }) }; } },
 };
 const $ = (selector) => document.querySelector(selector);
@@ -101,7 +102,7 @@ function renderRecords(root, records) {
 }
 function loginPage() {
   main.innerHTML = `<section class="login"><a class="brand" href="#"><span>TC</span><strong>철안철인클럽</strong></a><div class="card"><h2>운동기록 로그인</h2><form id="login-form"><div class="field"><label>아이디</label><input name="id" autocomplete="username" required></div><div class="field"><label>비밀번호</label><input name="password" type="password" autocomplete="current-password" required></div><button class="btn full">로그인</button></form><p class="hint">기존 이메일 계정도 그대로 로그인할 수 있습니다. 처음이신가요? <a href="#signup">회원가입</a></p></div></section>`;
-  $('#login-form').onsubmit = async (e) => { e.preventDefault(); const d = new FormData(e.target); const { error } = await supabase.auth.signInWithPassword({ email: accountEmail(String(d.get('id')).trim()), password: d.get('password') }); if (error) toast('아이디 또는 비밀번호를 확인해 주세요.'); };
+  $('#login-form').onsubmit = async (e) => { e.preventDefault(); const d = new FormData(e.target); const id = String(d.get('id')).trim(); const password = d.get('password'); let result = await supabase.auth.signInWithPassword({ email: accountEmail(id), password }); if (result.error && !id.includes('@')) result = await supabase.auth.signInWithPassword({ email: `${id.toLowerCase()}@cheonantri.local`, password }); if (result.error) toast('아이디 또는 비밀번호를 확인해 주세요.'); };
 }
 function signupPage() {
   main.innerHTML = `<section class="login"><a class="brand" href="#"><span>TC</span><strong>철안철인클럽</strong></a><div class="card"><h2>회원가입</h2><form id="signup-form"><div class="field"><label>이름</label><input name="name" required></div><div class="field"><label>아이디 (영문·숫자·_ 4~20자)</label><input name="id" pattern="[A-Za-z0-9_]{4,20}" autocomplete="username" required></div><div class="field"><label>비밀번호 (8자 이상)</label><input name="password" type="password" minlength="8" autocomplete="new-password" required></div><button class="btn orange full">가입 신청</button></form><p class="hint">가입 후 관리자의 승인 전까지는 기록을 입력할 수 없습니다.</p></div></section>`;
@@ -143,8 +144,9 @@ function pendingPage() {
 }
 function approvalsPage() {
   nav('approvals'); const pending = state.athletes.filter((p) => !p.is_approved);
-  main.innerHTML = `<section class="page"><div class="hero"><h1>가입 승인</h1><p>신규 회원을 확인한 뒤 승인해 주세요.</p></div><div class="card"><div class="table-wrap"><table><thead><tr><th>이름</th><th>아이디</th><th>가입일</th><th></th></tr></thead><tbody>${pending.map((p) => `<tr><td>${esc(p.display_name)}</td><td>${esc(p.username || '-')}</td><td>${String(p.created_at || '').slice(0, 10)}</td><td><button class="btn small approve" data-id="${p.id}">승인</button></td></tr>`).join('') || '<tr><td colspan="4">승인 대기 중인 회원이 없습니다.</td></tr>'}</tbody></table></div></div></section>`;
+  main.innerHTML = `<section class="page"><div class="hero"><h1>가입 승인</h1><p>신규 회원을 확인한 뒤 승인 또는 거절해 주세요.</p></div><div class="card"><div class="table-wrap"><table><thead><tr><th>이름</th><th>아이디</th><th>가입일</th><th></th></tr></thead><tbody>${pending.map((p) => `<tr><td>${esc(p.display_name)}</td><td>${esc(p.username || '-')}</td><td>${String(p.created_at || '').slice(0, 10)}</td><td><button class="btn small approve" data-id="${p.id}">승인</button> <button class="btn outline small reject" data-id="${p.id}">거절</button></td></tr>`).join('') || '<tr><td colspan="4">승인 대기 중인 회원이 없습니다.</td></tr>'}</tbody></table></div></div></section>`;
   document.querySelectorAll('.approve').forEach((button) => { button.onclick = async () => { const { error } = await supabase.from('profiles').update({ is_approved: true }).eq('id', button.dataset.id); if (error) return toast(error.message); toast('가입을 승인했습니다.'); await loadData(); approvalsPage(); }; });
+  document.querySelectorAll('.reject').forEach((button) => { button.onclick = async () => { if (!confirm('이 가입 신청을 삭제할까요? 같은 아이디로 다시 가입할 수 있습니다.')) return; const { error } = await supabase.rpc('reject_signup', { target_id: button.dataset.id }); if (error) return toast(error.message); toast('가입 신청을 삭제했습니다.'); await loadData(); approvalsPage(); }; });
 }
 async function loadData() {
   let profile = await supabase.from('profiles').select('*').eq('id', state.user.id).single();
