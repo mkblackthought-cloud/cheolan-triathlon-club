@@ -2,9 +2,11 @@ const SUPABASE_URL = 'https://szbgewudwfaiwzbajzzg.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
+// 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
+const SESSION_VERSION = '20260801-23';
 let authListener = null;
-const getSession = () => { try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); } catch { return null; } };
-const setSession = (session) => { if (session) sessionStorage.setItem(SESSION_KEY, JSON.stringify(session)); else sessionStorage.removeItem(SESSION_KEY); localStorage.removeItem(SESSION_KEY); authListener?.(); };
+const getSession = () => { try { if (localStorage.getItem(`${SESSION_KEY}_version`) !== SESSION_VERSION) { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); return null; } return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } };
+const setSession = (session) => { if (session) { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); } else { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); } authListener?.(); };
 async function refreshStoredSession() {
   const session = getSession();
   if (!session?.refresh_token) return null;
@@ -204,6 +206,8 @@ async function loadData() {
     profile = await supabase.from('profiles').select('*').eq('id', state.user.id).single();
   }
   if (profile.error || !profile.data) throw new Error('회원 프로필을 불러오지 못했습니다. 다시 시도해 주세요.');
+  // 대시보드에서 직접 만든 기존 계정도 로그인 아이디가 회원 목록에 보이도록 보완합니다.
+  if (!profile.data.username) { const username = state.user.user_metadata?.username || state.user.email?.split('@')[0]; if (username) { const updated = await supabase.from('profiles').update({ username }).eq('id', state.user.id); if (!updated.error) profile.data.username = username; } }
   state.profile = profile.data;
   const [records, settings, athletes, teams] = await Promise.all([supabase.from('workout_records').select('*').order('performed_on', { ascending: false }), supabase.from('club_settings').select('*').eq('id', 1).single(), supabase.from('profiles').select('*').order('display_name'), supabase.from('teams').select('*').order('name')]);
   state.records = records.data || []; state.settings = settings.data || {}; state.allProfiles = athletes.data || []; state.athletes = state.allProfiles.filter((profile) => profile.role !== 'admin'); state.teams = teams.data || [];
