@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
 // 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
-const SESSION_VERSION = '20260802-27';
+const SESSION_VERSION = '20260802-28';
 let authListener = null;
 const getSession = () => { try { if (localStorage.getItem(`${SESSION_KEY}_version`) !== SESSION_VERSION) { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); return null; } return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } };
 const setSession = (session) => { if (session) { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); } else { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); } authListener?.(); };
@@ -88,34 +88,45 @@ function completeBonus(size, allTogether = false) {
 }
 function monthRecords() { const month = new Date().toISOString().slice(0, 7); return state.records.filter((r) => r.performed_on?.startsWith(month)); }
 function summaries(records = state.records) {
-  const result = Object.fromEntries(state.athletes.map((p) => [p.id, { base: 0, member: 0, complete: 0, total: 0 }]));
-  const members = {};
-  state.athletes.forEach((p) => { if (p.team_id) (members[p.team_id] ||= []).push(p.id); });
+  const result = Object.fromEntries(state.athletes.map((p) => [p.id, { base: 0, total: 0 }]));
   const qualifying = records.filter((r) => baseScore(r) > 0);
   const scoredDays = new Set();
   qualifying.slice().sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))).forEach((r) => {
-    const profile = state.athletes.find((p) => p.id === r.user_id);
-    const item = result[r.user_id] ||= { base: 0, member: 0, complete: 0, total: 0 };
+    const item = result[r.user_id] ||= { base: 0, total: 0 };
     const dayKey = `${r.user_id}|${r.performed_on}`;
-    // 하루에 여러 운동을 등록해도 개인 기본점수와 팀 인원 보너스는
-    // 기준을 최초로 달성한 1건에만 적용합니다.
+    // 개인 점수는 하루에 기준을 최초로 달성한 운동 1건만, 최대 1점입니다.
     if (!scoredDays.has(dayKey)) {
       item.base += Math.min(1, baseScore(r));
-      item.member += teamSizeBonus((members[profile?.team_id] || []).length);
       scoredDays.add(dayKey);
     }
   });
+  Object.values(result).forEach((item) => { item.total = item.base; });
+  return result;
+}
+function teamSummaries(records = state.records) {
+  const result = Object.fromEntries(state.teams.map((team) => [team.id, { base: 0, member: 0, complete: 0, total: 0 }]));
+  const members = {};
+  state.athletes.forEach((p) => { if (p.team_id) (members[p.team_id] ||= []).push(p.id); });
+  const personal = summaries(records);
+  state.teams.forEach((team) => { result[team.id].base = (members[team.id] || []).reduce((sum, id) => sum + n(personal[id]?.base), 0); });
+  const qualifying = records.filter((r) => baseScore(r) > 0);
+  const memberScoredDays = new Set();
   const byDay = {};
-  qualifying.forEach((r) => {
+  qualifying.slice().sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))).forEach((r) => {
     const profile = state.athletes.find((p) => p.id === r.user_id);
-    if (profile?.team_id) (byDay[`${profile.team_id}|${r.performed_on}`] ||= []).push(r);
+    const teamId = profile?.team_id;
+    const ids = members[teamId] || [];
+    if (!teamId || ![3, 4].includes(ids.length)) return;
+    const dayKey = `${r.user_id}|${r.performed_on}`;
+    if (!memberScoredDays.has(dayKey)) { result[teamId].member += teamSizeBonus(ids.length); memberScoredDays.add(dayKey); }
+    (byDay[`${teamId}|${r.performed_on}`] ||= []).push(r);
   });
   Object.entries(byDay).forEach(([key, records]) => {
     const ids = members[key.split('|')[0]] || [];
     if (![3, 4].includes(ids.length) || !ids.every((id) => records.some((r) => r.user_id === id))) return;
     const allTogether = ids.every((id) => records.some((r) => r.user_id === id && r.is_team_workout));
     const bonus = completeBonus(ids.length, allTogether);
-    ids.forEach((id) => { result[id].complete += bonus; });
+    result[key.split('|')[0]].complete += bonus;
   });
   Object.values(result).forEach((item) => { item.total = item.base + item.member + item.complete; });
   return result;
@@ -171,7 +182,7 @@ mePage = function () {
   ['10%', '20%', '18%', '18%', '18%', '16%'].forEach((width, index) => { if (headers[index]) headers[index].style.width = width; });
 };
 function teamPage() {
-  const month = new Date().toISOString().slice(0, 7); nav('team'); const scores = summaries(monthRecords()); const rows = state.teams.map((team) => { const people = state.athletes.filter((p) => p.team_id === team.id); const leader = state.athletes.find((p) => p.id === team.leader_id); return { team, people, leader, total: people.reduce((sum, p) => sum + n(scores[p.id]?.total), 0) }; }).sort((a, b) => b.total - a.total); const mine = state.teams.find((t) => t.leader_id === state.user.id);
+  const month = new Date().toISOString().slice(0, 7); nav('team'); const scores = teamSummaries(monthRecords()); const rows = state.teams.map((team) => { const people = state.athletes.filter((p) => p.team_id === team.id); const leader = state.athletes.find((p) => p.id === team.leader_id); return { team, people, leader, total: n(scores[team.id]?.total) }; }).sort((a, b) => b.total - a.total); const mine = state.teams.find((t) => t.leader_id === state.user.id);
   main.innerHTML = `<section class="page"><div class="hero"><h1>${month} 팀 점수</h1><p>이번 달 기록만 합산합니다. 3·4명 팀에만 팀 보너스가 적용됩니다.</p></div>${mine ? `<div class="card"><h2>내 팀 이름 변경</h2><form id="rename-form"><input name="name" value="${esc(mine.name)}" required maxlength="30"><button class="btn full">팀 이름 저장</button></form></div>` : ''}<div class="card"><div class="table-wrap"><table><thead><tr><th>순위</th><th>팀</th><th>인원 / 팀장</th><th>점수</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.team.name)}</td><td>${r.people.length}명${r.leader ? ` / ${esc(r.leader.display_name)}` : ''}</td><td><b>${r.total}점</b></td></tr>`).join('') || '<tr><td colspan="4">팀이 없습니다.</td></tr>'}</tbody></table></div></div></section>`;
   if (mine) $('#rename-form').onsubmit = async (e) => { e.preventDefault(); const { error } = await supabase.from('teams').update({ name: new FormData(e.target).get('name') }).eq('id', mine.id); if (error) return toast(error.message); await loadData(); teamPage(); };
 }
