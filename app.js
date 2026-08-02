@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
 // 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
-const SESSION_VERSION = '20260802-26';
+const SESSION_VERSION = '20260802-27';
 let authListener = null;
 const getSession = () => { try { if (localStorage.getItem(`${SESSION_KEY}_version`) !== SESSION_VERSION) { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); return null; } return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } };
 const setSession = (session) => { if (session) { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); } else { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); } authListener?.(); };
@@ -97,8 +97,13 @@ function summaries(records = state.records) {
     const profile = state.athletes.find((p) => p.id === r.user_id);
     const item = result[r.user_id] ||= { base: 0, member: 0, complete: 0, total: 0 };
     const dayKey = `${r.user_id}|${r.performed_on}`;
-    if (!scoredDays.has(dayKey)) { item.base += Math.min(1, baseScore(r)); scoredDays.add(dayKey); }
-    item.member += teamSizeBonus((members[profile?.team_id] || []).length);
+    // 하루에 여러 운동을 등록해도 개인 기본점수와 팀 인원 보너스는
+    // 기준을 최초로 달성한 1건에만 적용합니다.
+    if (!scoredDays.has(dayKey)) {
+      item.base += Math.min(1, baseScore(r));
+      item.member += teamSizeBonus((members[profile?.team_id] || []).length);
+      scoredDays.add(dayKey);
+    }
   });
   const byDay = {};
   qualifying.forEach((r) => {
