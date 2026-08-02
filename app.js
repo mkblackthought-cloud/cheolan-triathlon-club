@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
 // 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
-const SESSION_VERSION = '20260802-25';
+const SESSION_VERSION = '20260802-26';
 let authListener = null;
 const getSession = () => { try { if (localStorage.getItem(`${SESSION_KEY}_version`) !== SESSION_VERSION) { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); return null; } return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } };
 const setSession = (session) => { if (session) { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); } else { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); } authListener?.(); };
@@ -81,9 +81,9 @@ function topbar() {
 }
 function baseScore(record) { return n(record.amount) >= n(state.settings[`${record.exercise_type}_target`]) ? n(state.settings[`${record.exercise_type}_points`] ?? 1) : 0; }
 function teamSizeBonus(size) { return size === 4 ? n(state.settings.team4_member_bonus) : size === 3 ? n(state.settings.team3_member_bonus) : 0; }
-function completeBonus(size) {
-  if (size === 4) return n(state.settings.team4_all_verified_bonus);
-  if (size === 3) return n(state.settings.team3_all_verified_bonus);
+function completeBonus(size, allTogether = false) {
+  if (size === 4) return n(state.settings[allTogether ? 'team4_group_workout_bonus' : 'team4_all_verified_bonus']);
+  if (size === 3) return n(state.settings[allTogether ? 'team3_group_workout_bonus' : 'team3_all_verified_bonus']);
   return 0;
 }
 function monthRecords() { const month = new Date().toISOString().slice(0, 7); return state.records.filter((r) => r.performed_on?.startsWith(month)); }
@@ -108,7 +108,8 @@ function summaries(records = state.records) {
   Object.entries(byDay).forEach(([key, records]) => {
     const ids = members[key.split('|')[0]] || [];
     if (![3, 4].includes(ids.length) || !ids.every((id) => records.some((r) => r.user_id === id))) return;
-    const bonus = completeBonus(ids.length);
+    const allTogether = ids.every((id) => records.some((r) => r.user_id === id && r.is_team_workout));
+    const bonus = completeBonus(ids.length, allTogether);
     ids.forEach((id) => { result[id].complete += bonus; });
   });
   Object.values(result).forEach((item) => { item.total = item.base + item.member + item.complete; });
@@ -140,8 +141,6 @@ function recordPage() {
   nav('record');
   main.innerHTML = `<section class="page"><div class="hero"><h1>오늘의 운동</h1><p>${esc(state.profile.display_name)}님의 운동 기록을 남겨보세요.</p></div><div class="card"><h2>운동 기록 입력</h2><form id="record-form"><div class="grid"><div class="field"><label>운동 종류</label><select name="exercise_type">${Object.entries(kinds).map(([key, v]) => `<option value="${key}">${v[0]} ${v[1]}</option>`).join('')}</select></div><div class="field"><label>운동 날짜</label><input name="performed_on" type="date" value="${new Date().toISOString().slice(0, 10)}" required></div></div><div class="field"><label>운동량</label><div class="input-addon"><input name="amount" type="number" min="0" step="0.1" required><span id="unit">km</span></div><p id="target-hint" class="hint"></p></div><div class="field"><label><input name="is_team_workout" type="checkbox" style="width:auto"> 팀원들과 함께 만나 운동했어요</label><p class="hint">팀 전원이 같은 날짜에 기준을 달성하고 모두 체크하면 동반 운동 보너스가 적용됩니다.</p></div><div class="field"><label>메모 (선택)</label><textarea name="memo"></textarea></div><div class="field"><label>운동 캡처 첨부 (선택, 최대 10MB)</label><input name="attachment" type="file" accept="image/*"></div><button class="btn orange full">운동 기록 저장</button></form></div><div class="section-title"><h2>최근 운동</h2></div><div class="card" id="recent-records"></div></section>`;
   const form = $('#record-form');
-  const teamWorkoutField = form.querySelector('[name="is_team_workout"]')?.closest('.field');
-  if (teamWorkoutField) teamWorkoutField.outerHTML = '<p class="notice">같은 날 팀원 모두가 운동별 기준을 넘기면, 전원 인증 보너스가 자동으로 적용됩니다.</p>';
   const refresh = () => { const [,, unit] = kinds[form.exercise_type.value]; $('#unit').textContent = unit; $('#target-hint').textContent = `점수 기준: ${n(state.settings[`${form.exercise_type.value}_target`])}${unit} 이상 = ${n(state.settings[`${form.exercise_type.value}_points`] ?? 1)}점`; };
   form.exercise_type.onchange = refresh; refresh(); renderRecords('#recent-records', state.records.filter((r) => r.user_id === state.user.id).slice(0, 5), true);
   form.onsubmit = saveRecord;
@@ -150,7 +149,7 @@ async function saveRecord(e) {
   e.preventDefault(); const form = new FormData(e.target); const file = form.get('attachment'); let attachment_url = null;
   if (file?.size) { if (file.size > 10 * 1024 * 1024) return toast('첨부 파일은 10MB 이하여야 합니다.'); const path = `${state.user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`; const upload = await supabase.storage.from('workout-images').upload(path, file); if (upload.error) return toast(upload.error.message); attachment_url = supabase.storage.from('workout-images').getPublicUrl(path).data.publicUrl; }
   if (state.profile?.role === 'admin') return toast('관리자 계정은 운동 기록을 입력할 수 없습니다.');
-  const { error } = await supabase.from('workout_records').insert({ user_id: state.user.id, exercise_type: form.get('exercise_type'), amount: n(form.get('amount')), performed_on: form.get('performed_on'), memo: form.get('memo'), attachment_url, is_team_workout: false });
+  const { error } = await supabase.from('workout_records').insert({ user_id: state.user.id, exercise_type: form.get('exercise_type'), amount: n(form.get('amount')), performed_on: form.get('performed_on'), memo: form.get('memo'), attachment_url, is_team_workout: form.get('is_team_workout') === 'on' });
   if (error) return toast(error.message); toast('운동 기록을 저장했습니다.'); await loadData(); recordPage();
 }
 function mePage() { nav('me'); const month = new Date().toISOString().slice(0, 7); const records = monthRecords(); const scores = summaries(records); const amounts = Object.fromEntries(state.athletes.map((p) => [p.id, { swim: 0, cycle: 0, run: 0 }])); records.forEach((r) => { if (amounts[r.user_id]?.[r.exercise_type] !== undefined) amounts[r.user_id][r.exercise_type] += n(r.amount); }); const rows = state.athletes.map((p) => ({ profile: p, score: scores[p.id] || { total: 0 }, amounts: amounts[p.id] || { swim: 0, cycle: 0, run: 0 } })).sort((a, b) => b.score.total - a.score.total); main.innerHTML = `<section class="page"><div class="hero"><h1>${month} 개인 점수</h1><p>이번 달 가입 회원 전체의 점수와 운동량입니다. 하루 운동 기본점수는 최초 1건만, 최대 1점입니다.</p></div><div class="card"><div class="table-wrap"><table><thead><tr><th>순위</th><th>이름</th><th>수영(m)</th><th>사이클(km)</th><th>러닝(km)</th><th>점수</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.profile.display_name)}</td><td>${n(r.amounts.swim)}</td><td>${n(r.amounts.cycle)}</td><td>${n(r.amounts.run)}</td><td><b>${n(r.score.total)}점</b></td></tr>`).join('') || '<tr><td colspan="6">가입 회원이 없습니다.</td></tr>'}</tbody></table></div></div></section>`; }
@@ -175,7 +174,6 @@ function adminPage() {
   nav('admin'); const teamOptions = state.teams.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join(''); const scores = summaries();
   main.innerHTML = `<section class="page"><div class="hero"><h1>관리자 화면</h1><p>운동·팀 점수와 팀 구성을 관리합니다.</p></div><div class="card"><h2>운동 기준 및 지급 점수</h2><form id="settings-form"><div class="grid">${Object.entries(kinds).map(([key, v]) => `<div class="field"><label>${v[1]} 기준 (${v[2]})</label><input name="${key}_target" type="number" step="0.1" value="${n(state.settings[`${key}_target`])}"></div><div class="field"><label>${v[1]} 지급 점수</label><input name="${key}_points" type="number" step="0.1" value="${n(state.settings[`${key}_points`] ?? 1)}"></div>`).join('')}</div><h2>팀 보너스 점수</h2><div class="grid"><div class="field"><label>4명 팀 · 개인별 인증</label><input name="team4_member_bonus" type="number" step="0.1" value="${state.settings.team4_member_bonus ?? .75}"></div><div class="field"><label>3명 팀 · 개인별 인증</label><input name="team3_member_bonus" type="number" step="0.1" value="${state.settings.team3_member_bonus ?? 1}"></div><div class="field"><label>4명 팀 · 전원 인증</label><input name="team4_all_verified_bonus" type="number" step="0.1" value="${state.settings.team4_all_verified_bonus ?? 2.5}"></div><div class="field"><label>3명 팀 · 전원 인증</label><input name="team3_all_verified_bonus" type="number" step="0.1" value="${state.settings.team3_all_verified_bonus ?? 2}"></div><div class="field"><label>4명 팀 · 전원 동반 운동</label><input name="team4_group_workout_bonus" type="number" step="0.1" value="${state.settings.team4_group_workout_bonus ?? 3.5}"></div><div class="field"><label>3명 팀 · 전원 동반 운동</label><input name="team3_group_workout_bonus" type="number" step="0.1" value="${state.settings.team3_group_workout_bonus ?? 3}"></div></div><button class="btn full">점수 설정 저장</button></form></div><div class="admin-grid"><div class="card"><h2>회원 팀 배정</h2><form id="team-form"><select name="user_id">${state.athletes.map((p) => `<option value="${p.id}">${esc(p.display_name)} (${esc(p.teams?.name || '미배정')})</option>`).join('')}</select><select name="team_id"><option value="">미배정</option>${teamOptions}</select><button class="btn full">팀 배정 저장</button></form><hr><form id="new-team-form"><input name="name" required maxlength="30" placeholder="새 팀 이름"><button class="btn outline full">팀 만들기</button></form></div><div class="card"><h2>팀장 지정</h2><form id="leader-form"><select name="team_id">${teamOptions}</select><select name="leader_id">${state.athletes.map((p) => `<option value="${p.id}">${esc(p.display_name)}</option>`).join('')}</select><button class="btn full">팀장 지정</button></form><p class="hint">팀장은 해당 팀에 배정된 회원이어야 합니다.</p></div></div></section>`;
   main.querySelector('.admin-grid')?.remove();
-  main.querySelectorAll('[name$="_group_workout_bonus"]').forEach((input) => input.closest('.field')?.remove());
   const adminTabs = document.createElement('div'); adminTabs.className = 'tabs'; adminTabs.innerHTML = '<a class="tab active" href="#admin">점수 설정</a><a class="tab" href="#teamadmin">팀 생성 · 배정 · 팀장 관리</a>'; main.querySelector('.hero').insertAdjacentElement('afterend', adminTabs);
   $('#settings-form').onsubmit = saveSettings;
 }
