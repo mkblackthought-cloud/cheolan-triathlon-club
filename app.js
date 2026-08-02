@@ -140,6 +140,37 @@ function teamSummaries(records = state.records) {
   Object.values(result).forEach((item) => { item.total = item.member + item.complete; });
   return result;
 }
+function teamScoreBreakdown(team, records = state.records) {
+  const people = state.athletes.filter((p) => p.team_id === team.id);
+  const memberIds = people.map((p) => p.id);
+  const size = memberIds.length;
+  const memberRate = teamSizeBonus(size);
+  const byDay = {};
+  records.filter((r) => baseScore(r) > 0)
+    .slice().sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')))
+    .forEach((r) => {
+      if (!memberIds.includes(r.user_id)) return;
+      const day = (byDay[r.performed_on] ||= { memberIds: new Set(), togetherIds: new Set() });
+      day.memberIds.add(r.user_id);
+      if (r.is_team_workout) day.togetherIds.add(r.user_id);
+    });
+  const days = Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b)).map(([date, day]) => {
+    const memberPoints = day.memberIds.size * memberRate;
+    const everyoneVerified = size > 0 && memberIds.every((id) => day.memberIds.has(id));
+    const everyoneTogether = everyoneVerified && memberIds.every((id) => day.togetherIds.has(id));
+    const completePoints = everyoneVerified ? completeBonus(size, everyoneTogether) : 0;
+    return { date, memberCount: day.memberIds.size, memberPoints, everyoneVerified, everyoneTogether, completePoints, total: memberPoints + completePoints };
+  });
+  return {
+    people,
+    size,
+    memberRate,
+    memberTotal: days.reduce((sum, day) => sum + day.memberPoints, 0),
+    completeTotal: days.reduce((sum, day) => sum + day.completePoints, 0),
+    total: days.reduce((sum, day) => sum + day.total, 0),
+    days,
+  };
+}
 function renderRecords(root, records, allowDelete = false) {
   if (!records.length) { $(root).innerHTML = '<div class="empty">아직 등록된 운동이 없습니다.</div>'; return; }
   $(root).innerHTML = records.map((r) => `<div class="record"><div class="record-icon">${kinds[r.exercise_type]?.[0] || '✓'}</div><div class="record-main"><b>${kinds[r.exercise_type]?.[1]} ${r.amount}${kinds[r.exercise_type]?.[2]}</b><small>${r.performed_on}${r.memo ? ` · ${esc(r.memo)}` : ''}</small></div><div class="record-score">+${baseScore(r)}점${allowDelete ? `<button class="btn outline small delete-record" data-id="${r.id}">삭제</button>` : ''}</div></div>`).join('');
@@ -191,8 +222,13 @@ mePage = function () {
   ['10%', '20%', '18%', '18%', '18%', '16%'].forEach((width, index) => { if (headers[index]) headers[index].style.width = width; });
 };
 function teamPage() {
-  const month = new Date().toISOString().slice(0, 7); nav('team'); const scores = teamSummaries(monthRecords()); const rows = state.teams.map((team) => { const people = state.athletes.filter((p) => p.team_id === team.id); const leader = state.athletes.find((p) => p.id === team.leader_id); return { team, people, leader, total: n(scores[team.id]?.total) }; }).sort((a, b) => b.total - a.total); const mine = state.teams.find((t) => t.leader_id === state.user.id);
-  main.innerHTML = `<section class="page"><div class="hero"><h1>${month} 팀 점수</h1><p>이번 달 기록만 합산합니다. 3·4명 팀에만 팀 보너스가 적용됩니다.</p></div>${mine ? `<div class="card"><h2>내 팀 이름 변경</h2><form id="rename-form"><input name="name" value="${esc(mine.name)}" required maxlength="30"><button class="btn full">팀 이름 저장</button></form></div>` : ''}<div class="card"><div class="table-wrap"><table><thead><tr><th>순위</th><th>팀</th><th>인원 / 팀장</th><th>점수</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.team.name)}</td><td>${r.people.length}명${r.leader ? ` / ${esc(r.leader.display_name)}` : ''}</td><td><b>${r.total}점</b></td></tr>`).join('') || '<tr><td colspan="4">팀이 없습니다.</td></tr>'}</tbody></table></div></div></section>`;
+  const month = new Date().toISOString().slice(0, 7); nav('team'); const records = monthRecords(); const scores = teamSummaries(records); const rows = state.teams.map((team) => { const people = state.athletes.filter((p) => p.team_id === team.id); const leader = state.athletes.find((p) => p.id === team.leader_id); return { team, people, leader, total: n(scores[team.id]?.total) }; }).sort((a, b) => b.total - a.total); const mine = state.teams.find((t) => t.leader_id === state.user.id);
+  const selectedId = state.selectedScoreTeamId && state.teams.some((team) => team.id === state.selectedScoreTeamId) ? state.selectedScoreTeamId : null;
+  const selected = state.teams.find((team) => team.id === selectedId);
+  const detail = selected ? teamScoreBreakdown(selected, records) : null;
+  const detailHtml = !detail ? '' : `<div class="card" id="team-score-detail"><h2>${esc(selected.name)} · 점수 상세</h2><p><b>팀원:</b> ${detail.people.map((person) => esc(person.display_name)).join(', ') || '배정된 팀원이 없습니다.'}</p><p class="hint">개인 기본 점수는 팀 점수에 더하지 않습니다. 팀원 인증 보너스와 전원 인증(또는 전원 동반 운동) 보너스만 합산합니다.</p><div class="score-summary"><b>팀원 인증 ${detail.memberTotal}점</b> + <b>전원 보너스 ${detail.completeTotal}점</b> = <b>${detail.total}점</b></div><div class="table-wrap"><table><thead><tr><th>날짜</th><th>팀원 인증</th><th>전원 보너스</th><th>일 점수</th></tr></thead><tbody>${detail.days.map((day) => `<tr><td>${day.date}</td><td>${day.memberCount}명 × ${detail.memberRate}점 = ${day.memberPoints}점</td><td>${day.everyoneVerified ? (day.everyoneTogether ? `전원 동반 운동 ${day.completePoints}점` : `전원 인증 ${day.completePoints}점`) : '-'}</td><td><b>${day.total}점</b></td></tr>`).join('') || '<tr><td colspan="4">이번 달 기준 달성 기록이 없습니다.</td></tr>'}</tbody></table></div></div>`;
+  main.innerHTML = `<section class="page"><div class="hero"><h1>${month} 팀 점수</h1><p>이번 달 기록만 합산합니다. 팀을 누르면 팀원과 점수 계산식을 볼 수 있습니다.</p></div>${mine ? `<div class="card"><h2>내 팀 이름 변경</h2><form id="rename-form"><input name="name" value="${esc(mine.name)}" required maxlength="30"><button class="btn full">팀 이름 저장</button></form></div>` : ''}<div class="card"><div class="table-wrap"><table><thead><tr><th>순위</th><th>팀</th><th>인원 / 팀장</th><th>점수</th></tr></thead><tbody>${rows.map((r, i) => `<tr class="team-score-row" data-team-id="${r.team.id}" style="cursor:pointer" title="팀 점수 상세 보기"><td>${i + 1}</td><td>${esc(r.team.name)}</td><td>${r.people.length}명${r.leader ? ` / ${esc(r.leader.display_name)}` : ''}</td><td><b>${r.total}점</b></td></tr>`).join('') || '<tr><td colspan="4">팀이 없습니다.</td></tr>'}</tbody></table></div></div>${detailHtml}</section>`;
+  main.querySelectorAll('.team-score-row').forEach((row) => { row.onclick = () => { state.selectedScoreTeamId = row.dataset.teamId; teamPage(); setTimeout(() => $('#team-score-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0); }; });
   if (mine) $('#rename-form').onsubmit = async (e) => { e.preventDefault(); const { error } = await supabase.from('teams').update({ name: new FormData(e.target).get('name') }).eq('id', mine.id); if (error) return toast(error.message); await loadData(); teamPage(); };
 }
 function adminPage() {
