@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
 // 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
-const SESSION_VERSION = '20260802-28';
+const SESSION_VERSION = '20260802-29';
 let authListener = null;
 const getSession = () => { try { if (localStorage.getItem(`${SESSION_KEY}_version`) !== SESSION_VERSION) { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); return null; } return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } };
 const setSession = (session) => { if (session) { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); } else { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); } authListener?.(); };
@@ -107,8 +107,8 @@ function teamSummaries(records = state.records) {
   const result = Object.fromEntries(state.teams.map((team) => [team.id, { base: 0, member: 0, complete: 0, total: 0 }]));
   const members = {};
   state.athletes.forEach((p) => { if (p.team_id) (members[p.team_id] ||= []).push(p.id); });
-  const personal = summaries(records);
-  state.teams.forEach((team) => { result[team.id].base = (members[team.id] || []).reduce((sum, id) => sum + n(personal[id]?.base), 0); });
+  // 팀 점수에는 개인 기본점수를 합산하지 않습니다.
+  // 팀 인원 보너스와 전원 인증(또는 동반 운동) 보너스만 반영합니다.
   const qualifying = records.filter((r) => baseScore(r) > 0);
   const memberScoredDays = new Set();
   const byDay = {};
@@ -128,7 +128,7 @@ function teamSummaries(records = state.records) {
     const bonus = completeBonus(ids.length, allTogether);
     result[key.split('|')[0]].complete += bonus;
   });
-  Object.values(result).forEach((item) => { item.total = item.base + item.member + item.complete; });
+  Object.values(result).forEach((item) => { item.total = item.member + item.complete; });
   return result;
 }
 function renderRecords(root, records, allowDelete = false) {
