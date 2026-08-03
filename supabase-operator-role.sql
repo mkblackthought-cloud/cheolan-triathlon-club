@@ -22,3 +22,25 @@ $$;
 
 revoke all on function public.is_admin() from public;
 grant execute on function public.is_admin() to authenticated;
+
+-- 운영자는 관리 기능을 사용하지만, 역할 변경(운영 권한 부여·회수)은 admin만 가능합니다.
+create or replace function public.prevent_non_admin_role_changes()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if old.role is distinct from new.role
+     and not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    raise exception 'Only the admin account can change member roles';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.prevent_non_admin_role_changes() from public;
+drop trigger if exists profiles_admin_only_role_change on public.profiles;
+create trigger profiles_admin_only_role_change
+before update of role on public.profiles
+for each row execute function public.prevent_non_admin_role_changes();
