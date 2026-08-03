@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
 // 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
-const SESSION_VERSION = '20260803-33';
+const SESSION_VERSION = '20260803-34';
 let authListener = null;
 const getSession = () => { try { if (localStorage.getItem(`${SESSION_KEY}_version`) !== SESSION_VERSION) { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); return null; } return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } };
 const setSession = (session) => { if (session) { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); } else { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); } authListener?.(); };
@@ -295,17 +295,20 @@ function analysisPage() {
   const today = localDate();
   const defaultStart = `${today.slice(0, 7)}-01`;
   const range = state.analysisRange || { start: defaultStart, end: today };
+  const audienceFilter = state.analysisAudienceFilter || 'all';
+  const visibleAthletes = audienceFilter === 'assigned' ? state.athletes.filter((profile) => profile.team_id) : state.athletes;
   const records = state.records.filter((record) => record.performed_on >= range.start && record.performed_on <= range.end);
   const startDate = new Date(`${range.start}T00:00:00`);
   const endDate = new Date(`${range.end}T00:00:00`);
   const dayCount = Math.floor((endDate - startDate) / 86400000) + 1;
-  const scoreDays = Object.fromEntries(state.athletes.map((profile) => [profile.id, new Set()]));
+  const scoreDays = Object.fromEntries(visibleAthletes.map((profile) => [profile.id, new Set()]));
   records.forEach((record) => { if (baseScore(record) > 0 && scoreDays[record.user_id]) scoreDays[record.user_id].add(record.performed_on); });
-  const perfectMembers = state.athletes.filter((profile) => scoreDays[profile.id].size === dayCount && dayCount > 0);
+  const perfectMembers = visibleAthletes.filter((profile) => scoreDays[profile.id].size === dayCount && dayCount > 0);
   const personalScores = summaries(records);
   const activities = activityTotals(records);
-  const topFive = (kind) => state.athletes.map((profile) => ({ profile, amount: n(activities[profile.id]?.[kind]) })).filter((row) => row.amount > 0).sort((a, b) => b.amount - a.amount || String(a.profile.display_name).localeCompare(String(b.profile.display_name))).slice(0, 5);
-  main.innerHTML = `<section class="page"><div class="hero"><h1>운동 분석</h1><p>선택 기간의 매일 점수 획득 회원과 종목별 누적 운동량 상위 5명을 확인합니다.</p></div><div class="card"><form id="analysis-range-form"><div class="grid"><div class="field"><label>시작일</label><input name="start" type="date" value="${range.start}" required></div><div class="field"><label>종료일</label><input name="end" type="date" value="${range.end}" required></div></div><button class="btn full">분석하기</button></form></div><div class="card"><h2>매일 점수 획득 회원</h2><p class="hint">${range.start} ~ ${range.end} · ${dayCount > 0 ? dayCount : 0}일 모두 기준 점수 이상 운동 기록을 남긴 회원입니다.</p>${perfectMembers.length ? `<div class="table-wrap"><table><thead><tr><th>이름</th><th>점수 획득일</th><th>개인 점수</th></tr></thead><tbody>${perfectMembers.map((profile) => `<tr><td>${esc(profile.display_name)}</td><td>${scoreDays[profile.id].size} / ${dayCount}일</td><td><b>${n(personalScores[profile.id]?.total)}점</b></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">선택 기간에 매일 점수를 획득한 회원이 없습니다.</div>'}</div><div class="admin-grid">${Object.entries(kinds).map(([kind, info]) => { const rows = topFive(kind); return `<div class="card"><h2>${info[0]} ${info[1]} 상위 5명</h2><div class="table-wrap"><table><thead><tr><th>순위</th><th>이름</th><th>누적량</th></tr></thead><tbody>${rows.map((row, index) => `<tr><td>${index + 1}</td><td>${esc(row.profile.display_name)}</td><td><b>${row.amount}${info[2]}</b></td></tr>`).join('') || '<tr><td colspan="3">기록이 없습니다.</td></tr>'}</tbody></table></div></div>`; }).join('')}</div></section>`;
+  const topFive = (kind) => visibleAthletes.map((profile) => ({ profile, amount: n(activities[profile.id]?.[kind]) })).filter((row) => row.amount > 0).sort((a, b) => b.amount - a.amount || String(a.profile.display_name).localeCompare(String(b.profile.display_name))).slice(0, 5);
+  main.innerHTML = `<section class="page"><div class="hero"><h1>운동 분석</h1><p>선택 기간의 매일 점수 획득 회원과 종목별 누적 운동량 상위 5명을 확인합니다.</p></div><div class="card"><form id="analysis-range-form"><div class="grid"><div class="field"><label>시작일</label><input name="start" type="date" value="${range.start}" required></div><div class="field"><label>종료일</label><input name="end" type="date" value="${range.end}" required></div><div class="field"><label>표시 대상</label><select id="analysis-audience-filter"><option value="all" ${audienceFilter === 'all' ? 'selected' : ''}>전체 인원</option><option value="assigned" ${audienceFilter === 'assigned' ? 'selected' : ''}>팀 배정된 인원 모두</option></select></div></div><button class="btn full">분석하기</button></form></div><div class="card"><h2>매일 점수 획득 회원</h2><p class="hint">${range.start} ~ ${range.end} · ${dayCount > 0 ? dayCount : 0}일 모두 기준 점수 이상 운동 기록을 남긴 회원입니다.</p>${perfectMembers.length ? `<div class="table-wrap"><table><thead><tr><th>이름</th><th>점수 획득일</th><th>개인 점수</th></tr></thead><tbody>${perfectMembers.map((profile) => `<tr><td>${esc(profile.display_name)}</td><td>${scoreDays[profile.id].size} / ${dayCount}일</td><td><b>${n(personalScores[profile.id]?.total)}점</b></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">선택 기간에 매일 점수를 획득한 회원이 없습니다.</div>'}</div><div class="admin-grid">${Object.entries(kinds).map(([kind, info]) => { const rows = topFive(kind); return `<div class="card"><h2>${info[0]} ${info[1]} 상위 5명</h2><div class="table-wrap"><table><thead><tr><th>순위</th><th>이름</th><th>누적량</th></tr></thead><tbody>${rows.map((row, index) => `<tr><td>${index + 1}</td><td>${esc(row.profile.display_name)}</td><td><b>${row.amount}${info[2]}</b></td></tr>`).join('') || '<tr><td colspan="3">기록이 없습니다.</td></tr>'}</tbody></table></div></div>`; }).join('')}</div></section>`;
+  $('#analysis-audience-filter').onchange = (event) => { state.analysisAudienceFilter = event.target.value; analysisPage(); };
   $('#analysis-range-form').onsubmit = (event) => { event.preventDefault(); const data = new FormData(event.target); if (data.get('start') > data.get('end')) return toast('시작일은 종료일보다 앞서야 합니다.'); state.analysisRange = { start: data.get('start'), end: data.get('end') }; analysisPage(); };
 }
 async function loadData() {
