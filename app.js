@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
 // 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
-const SESSION_VERSION = '20260803-31';
+const SESSION_VERSION = '20260803-32';
 let authListener = null;
 const getSession = () => { try { if (localStorage.getItem(`${SESSION_KEY}_version`) !== SESSION_VERSION) { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); return null; } return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } };
 const setSession = (session) => { if (session) { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); } else { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); } authListener?.(); };
@@ -67,10 +67,11 @@ let state = { user: null, profile: null, records: [], settings: {}, athletes: []
 
 const esc = (value = '') => String(value).replace(/[&<>'"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[c]));
 const n = (value) => Number(value || 0);
+const hasAdminAccess = () => ['admin', 'manager'].includes(state.profile?.role);
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 3200); }
 function nav(active) {
   const items = state.profile?.role === 'admin' ? [['me', '◎', '개인 점수'], ['team', '♜', '팀 점수']] : [['record', '✚', '기록입력'], ['me', '◎', '개인 점수'], ['team', '♜', '팀 점수']];
-  if (state.profile?.role === 'admin') items.push(['admin', '⚙', '관리'], ['membersadmin', '☷', '회원 목록'], ['approvals', '✓', '가입승인']);
+  if (hasAdminAccess()) items.push(['admin', '⚙', '관리'], ['membersadmin', '☷', '회원 목록'], ['approvals', '✓', '가입승인'], ['analysis', '▥', '분석']);
   $('#bottom-nav').innerHTML = items.map(([id, icon, label]) => `<a href="#${id}" class="${active === id ? 'active' : ''}"><span>${icon}</span>${label}</a>`).join('');
 }
 function accountEmail(id) { return id.includes('@') ? id : `${id.toLowerCase()}@cheonantri.club`; }
@@ -197,7 +198,8 @@ function passwordPage() {
 }
 function memberAdminPage() {
   nav('membersadmin'); const rows = state.allProfiles.slice().sort((a, b) => String(a.display_name).localeCompare(String(b.display_name)));
-  main.innerHTML = `<section class="page"><div class="hero"><h1>가입 회원 목록</h1><p>현재 가입된 회원 정보입니다.</p></div><div class="card"><div class="table-wrap"><table><thead><tr><th>이름</th><th>아이디</th><th>권한</th><th>승인</th></tr></thead><tbody>${rows.map((p) => `<tr><td>${esc(p.display_name)}</td><td>${esc(p.username || '-')}</td><td>${p.role === 'admin' ? '관리자' : '회원'}</td><td>${p.is_approved ? '승인' : '대기'}</td></tr>`).join('') || '<tr><td colspan="4">가입 회원이 없습니다.</td></tr>'}</tbody></table></div></div></section>`;
+  main.innerHTML = `<section class="page"><div class="hero"><h1>가입 회원 목록</h1><p>운영자 권한은 관리 기능 전체와 기록 입력을 함께 사용할 수 있습니다.</p></div><div class="card"><div class="table-wrap"><table><thead><tr><th>이름</th><th>아이디</th><th>권한</th><th>승인</th><th>권한 관리</th></tr></thead><tbody>${rows.map((p) => { const label = p.role === 'admin' ? '관리자' : p.role === 'manager' ? '운영자' : '회원'; const action = p.role === 'admin' ? '-' : `<button class="btn ${p.role === 'manager' ? 'outline' : ''} small operator-role" data-id="${p.id}" data-role="${p.role === 'manager' ? 'member' : 'manager'}">${p.role === 'manager' ? '운영 권한 회수' : '운영 권한 부여'}</button>`; return `<tr><td>${esc(p.display_name)}</td><td>${esc(p.username || '-')}</td><td>${label}</td><td>${p.is_approved ? '승인' : '대기'}</td><td>${action}</td></tr>`; }).join('') || '<tr><td colspan="5">가입 회원이 없습니다.</td></tr>'}</tbody></table></div></div></section>`;
+  document.querySelectorAll('.operator-role').forEach((button) => { button.onclick = async () => { const role = button.dataset.role; const message = role === 'manager' ? '이 회원에게 운영 권한을 부여할까요? 관리 화면과 기록 입력을 모두 사용할 수 있습니다.' : '이 회원의 운영 권한을 회수할까요?'; if (!confirm(message)) return; const values = role === 'manager' ? { role, is_approved: true } : { role }; const { error } = await supabase.from('profiles').update(values).eq('id', button.dataset.id); if (error) return toast(error.message); toast(role === 'manager' ? '운영 권한을 부여했습니다.' : '운영 권한을 회수했습니다.'); await loadData(); memberAdminPage(); }; });
 }
 function recordPage() {
   if (state.profile?.role === 'admin') return adminPage();
@@ -288,6 +290,24 @@ function approvalsPage() {
   document.querySelectorAll('.approve').forEach((button) => { button.onclick = async () => { const { error } = await supabase.from('profiles').update({ is_approved: true }).eq('id', button.dataset.id); if (error) return toast(error.message); toast('가입을 승인했습니다.'); await loadData(); approvalsPage(); }; });
   document.querySelectorAll('.reject').forEach((button) => { button.onclick = async () => { if (!confirm('이 가입 신청을 삭제할까요? 같은 아이디로 다시 가입할 수 있습니다.')) return; const { error } = await supabase.rpc('reject_signup', { target_id: button.dataset.id }); if (error) return toast(error.message); toast('가입 신청을 삭제했습니다.'); await loadData(); approvalsPage(); }; });
 }
+function analysisPage() {
+  nav('analysis');
+  const today = localDate();
+  const defaultStart = `${today.slice(0, 7)}-01`;
+  const range = state.analysisRange || { start: defaultStart, end: today };
+  const records = state.records.filter((record) => record.performed_on >= range.start && record.performed_on <= range.end);
+  const startDate = new Date(`${range.start}T00:00:00`);
+  const endDate = new Date(`${range.end}T00:00:00`);
+  const dayCount = Math.floor((endDate - startDate) / 86400000) + 1;
+  const scoreDays = Object.fromEntries(state.athletes.map((profile) => [profile.id, new Set()]));
+  records.forEach((record) => { if (baseScore(record) > 0 && scoreDays[record.user_id]) scoreDays[record.user_id].add(record.performed_on); });
+  const perfectMembers = state.athletes.filter((profile) => scoreDays[profile.id].size === dayCount && dayCount > 0);
+  const personalScores = summaries(records);
+  const activities = activityTotals(records);
+  const topFive = (kind) => state.athletes.map((profile) => ({ profile, amount: n(activities[profile.id]?.[kind]) })).filter((row) => row.amount > 0).sort((a, b) => b.amount - a.amount || String(a.profile.display_name).localeCompare(String(b.profile.display_name))).slice(0, 5);
+  main.innerHTML = `<section class="page"><div class="hero"><h1>운동 분석</h1><p>선택 기간의 매일 점수 획득 회원과 종목별 누적 운동량 상위 5명을 확인합니다.</p></div><div class="card"><form id="analysis-range-form"><div class="grid"><div class="field"><label>시작일</label><input name="start" type="date" value="${range.start}" required></div><div class="field"><label>종료일</label><input name="end" type="date" value="${range.end}" required></div></div><button class="btn full">분석하기</button></form></div><div class="card"><h2>매일 점수 획득 회원</h2><p class="hint">${range.start} ~ ${range.end} · ${dayCount > 0 ? dayCount : 0}일 모두 기준 점수 이상 운동 기록을 남긴 회원입니다.</p>${perfectMembers.length ? `<div class="table-wrap"><table><thead><tr><th>이름</th><th>점수 획득일</th><th>개인 점수</th></tr></thead><tbody>${perfectMembers.map((profile) => `<tr><td>${esc(profile.display_name)}</td><td>${scoreDays[profile.id].size} / ${dayCount}일</td><td><b>${n(personalScores[profile.id]?.total)}점</b></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">선택 기간에 매일 점수를 획득한 회원이 없습니다.</div>'}</div><div class="admin-grid">${Object.entries(kinds).map(([kind, info]) => { const rows = topFive(kind); return `<div class="card"><h2>${info[0]} ${info[1]} 상위 5명</h2><div class="table-wrap"><table><thead><tr><th>순위</th><th>이름</th><th>누적량</th></tr></thead><tbody>${rows.map((row, index) => `<tr><td>${index + 1}</td><td>${esc(row.profile.display_name)}</td><td><b>${row.amount}${info[2]}</b></td></tr>`).join('') || '<tr><td colspan="3">기록이 없습니다.</td></tr>'}</tbody></table></div></div>`; }).join('')}</div></section>`;
+  $('#analysis-range-form').onsubmit = (event) => { event.preventDefault(); const data = new FormData(event.target); if (data.get('start') > data.get('end')) return toast('시작일은 종료일보다 앞서야 합니다.'); state.analysisRange = { start: data.get('start'), end: data.get('end') }; analysisPage(); };
+}
 async function loadData() {
   let profile = await supabase.from('profiles').select('*').eq('id', state.user.id).single();
   // Supabase 대시보드에서 직접 만든 로그인 계정에는 profiles 행이 없을 수 있습니다.
@@ -312,7 +332,7 @@ async function loadData() {
 async function route() {
   const { data: { session } } = await supabase.auth.getSession(); state.user = session?.user || null;
   if (!state.user) { $('#user-area').innerHTML = ''; $('#bottom-nav').innerHTML = ''; return location.hash === '#signup' ? signupPage() : loginPage(); }
-  try { await loadData(); topbar(); if (state.profile.role !== 'admin' && !state.profile.is_approved) return pendingPage(); const page = location.hash.slice(1) || 'record'; if (['admin', 'teamadmin', 'membersadmin', 'approvals'].includes(page) && state.profile.role !== 'admin') return recordPage(); ({ record: recordPage, me: mePage, team: teamPage, admin: adminPage, teamadmin: teamAdminPage, membersadmin: memberAdminPage, approvals: approvalsPage, password: passwordPage }[page] || recordPage)(); } catch (error) { main.innerHTML = `<section class="page"><div class="card"><h2>접속 오류</h2><p>${esc(error.message)}</p><button class="btn full" id="retry">다시 시도</button></div></section>`; $('#retry').onclick = route; }
+  try { await loadData(); topbar(); if (!hasAdminAccess() && !state.profile.is_approved) return pendingPage(); const page = location.hash.slice(1) || 'record'; if (['admin', 'teamadmin', 'membersadmin', 'approvals', 'analysis'].includes(page) && !hasAdminAccess()) return recordPage(); ({ record: recordPage, me: mePage, team: teamPage, admin: adminPage, teamadmin: teamAdminPage, membersadmin: memberAdminPage, approvals: approvalsPage, analysis: analysisPage, password: passwordPage }[page] || recordPage)(); } catch (error) { main.innerHTML = `<section class="page"><div class="card"><h2>접속 오류</h2><p>${esc(error.message)}</p><button class="btn full" id="retry">다시 시도</button></div></section>`; $('#retry').onclick = route; }
 }
 window.addEventListener('hashchange', route);
 supabase.auth.onAuthStateChange(() => route());
