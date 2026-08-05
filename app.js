@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
 // 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
-const SESSION_VERSION = '20260803-34';
+const SESSION_VERSION = '20260803-35';
 let authListener = null;
 const getSession = () => { try { if (localStorage.getItem(`${SESSION_KEY}_version`) !== SESSION_VERSION) { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); return null; } return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } };
 const setSession = (session) => { if (session) { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); } else { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); } authListener?.(); };
@@ -212,7 +212,7 @@ function recordPage() {
 }
 async function saveRecord(e) {
   e.preventDefault(); const form = new FormData(e.target); const file = form.get('attachment'); let attachment_url = null;
-  if (file?.size) { if (file.size > 10 * 1024 * 1024) return toast('첨부 파일은 10MB 이하여야 합니다.'); const path = `${state.user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`; const upload = await supabase.storage.from('workout-images').upload(path, file); if (upload.error) return toast(upload.error.message); attachment_url = supabase.storage.from('workout-images').getPublicUrl(path).data.publicUrl; }
+  if (file?.size) { if (file.size > 10 * 1024 * 1024) return toast('첨부 파일은 10MB 이하여야 합니다.'); const folder = state.profile?.username || state.user.id; const path = `${folder}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`; const upload = await supabase.storage.from('workout-images').upload(path, file); if (upload.error) return toast(upload.error.message); attachment_url = supabase.storage.from('workout-images').getPublicUrl(path).data.publicUrl; }
   if (state.profile?.role === 'admin') return toast('관리자 계정은 운동 기록을 입력할 수 없습니다.');
   const { error } = await supabase.from('workout_records').insert({ user_id: state.user.id, exercise_type: form.get('exercise_type'), amount: n(form.get('amount')), performed_on: form.get('performed_on'), memo: form.get('memo'), attachment_url, is_team_workout: form.get('is_team_workout') === 'on' });
   if (error) return toast(error.message); toast('운동 기록을 저장했습니다.'); await loadData(); recordPage();
