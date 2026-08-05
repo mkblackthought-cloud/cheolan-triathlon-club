@@ -3,10 +3,14 @@ const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
 // 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
-const SESSION_VERSION = '20260803-36';
+const SESSION_VERSION = '20260803-37';
 let authListener = null;
-const getSession = () => { try { if (localStorage.getItem(`${SESSION_KEY}_version`) !== SESSION_VERSION) { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); return null; } return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } };
-const setSession = (session) => { if (session) { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); } else { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); } authListener?.(); };
+let dailyLogoutTimer = null;
+function koreaDateKey(now = new Date()) { const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now); const part = (type) => parts.find((item) => item.type === type)?.value; return `${part('year')}-${part('month')}-${part('day')}`; }
+function millisecondsUntilKoreaMidnight() { const koreaClock = new Date(Date.now() + 9 * 60 * 60 * 1000); koreaClock.setUTCHours(24, 0, 0, 150); return koreaClock.getTime() - (Date.now() + 9 * 60 * 60 * 1000); }
+function scheduleDailyLogout() { clearTimeout(dailyLogoutTimer); if (!getSession()) return; dailyLogoutTimer = setTimeout(() => { setSession(null); location.hash = ''; toast('자정이 되어 로그아웃되었습니다. 다시 로그인해 주세요.'); }, millisecondsUntilKoreaMidnight()); }
+const getSession = () => { try { const savedDate = localStorage.getItem(`${SESSION_KEY}_date`); if (localStorage.getItem(`${SESSION_KEY}_version`) !== SESSION_VERSION || (savedDate && savedDate !== koreaDateKey())) { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); localStorage.removeItem(`${SESSION_KEY}_date`); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); return null; } return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } };
+const setSession = (session) => { if (session) { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); localStorage.setItem(`${SESSION_KEY}_date`, koreaDateKey()); } else { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); localStorage.removeItem(`${SESSION_KEY}_date`); } scheduleDailyLogout(); authListener?.(); };
 async function refreshStoredSession() {
   const session = getSession();
   if (!session?.refresh_token) return null;
@@ -341,3 +345,4 @@ async function route() {
 window.addEventListener('hashchange', route);
 supabase.auth.onAuthStateChange(() => route());
 route();
+scheduleDailyLogout();
