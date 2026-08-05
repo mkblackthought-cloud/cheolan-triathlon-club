@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
 // 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
-const SESSION_VERSION = '20260803-35';
+const SESSION_VERSION = '20260803-36';
 let authListener = null;
 const getSession = () => { try { if (localStorage.getItem(`${SESSION_KEY}_version`) !== SESSION_VERSION) { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); return null; } return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } };
 const setSession = (session) => { if (session) { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); localStorage.setItem(`${SESSION_KEY}_version`, SESSION_VERSION); } else { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); } authListener?.(); };
@@ -72,7 +72,8 @@ function toast(message) { const el = $('#toast'); el.textContent = message; el.c
 function nav(active) {
   const items = state.profile?.role === 'admin' ? [['me', '◎', '개인 점수'], ['team', '♜', '팀 점수']] : [['record', '✚', '기록입력'], ['me', '◎', '개인 점수'], ['team', '♜', '팀 점수']];
   if (hasAdminAccess()) items.push(['admin', '⚙', '관리'], ['membersadmin', '☷', '회원 목록'], ['approvals', '✓', '가입승인'], ['analysis', '▥', '분석']);
-  $('#bottom-nav').innerHTML = items.map(([id, icon, label]) => `<a href="#${id}" class="${active === id ? 'active' : ''}"><span>${icon}</span>${label}</a>`).join('');
+  const hasPendingApprovals = hasAdminAccess() && state.athletes.some((profile) => !profile.is_approved);
+  $('#bottom-nav').innerHTML = items.map(([id, icon, label]) => `<a href="#${id}" class="${active === id ? 'active' : ''}"><span>${icon}</span>${label}${id === 'approvals' && hasPendingApprovals ? '<i class="nav-new-badge" aria-label="새 가입 승인 요청">N</i>' : ''}</a>`).join('');
 }
 function accountEmail(id) { return id.includes('@') ? id : `${id.toLowerCase()}@cheonantri.club`; }
 function authPassword(password) { return password.length >= 6 ? password : `ctc-${password}`; }

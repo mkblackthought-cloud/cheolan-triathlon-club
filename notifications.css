@@ -1,0 +1,1 @@
+.bottom-nav a{position:relative}.nav-new-badge{position:absolute;top:3px;right:14px;width:17px;height:17px;display:grid;place-items:center;border-radius:50%;background:#e53935;color:#fff;font-style:normal;font-size:10px;font-weight:900;line-height:1;box-shadow:0 1px 3px rgba(122,0,0,.28)}@media(max-width:560px){.nav-new-badge{right:8px}}
