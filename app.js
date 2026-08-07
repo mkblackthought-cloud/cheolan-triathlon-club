@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
 // 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
-const SESSION_VERSION = '20260803-37';
+const SESSION_VERSION = '20260803-38';
 let authListener = null;
 let dailyLogoutTimer = null;
 function koreaDateKey(now = new Date()) { const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now); const part = (type) => parts.find((item) => item.type === type)?.value; return `${part('year')}-${part('month')}-${part('day')}`; }
@@ -121,7 +121,7 @@ function summaries(records = state.records) {
 function activityTotals(records = state.records, profiles = state.athletes) {
   const totals = Object.fromEntries(profiles.map((profile) => [profile.id, { swim: 0, cycle: 0, run: 0, strength: 0 }]));
   records.forEach((record) => {
-    if (totals[record.user_id]?.[record.exercise_type] !== undefined) totals[record.user_id][record.exercise_type] += n(record.amount);
+    if (totals[record.user_id]?.[record.exercise_type] !== undefined) totals[record.user_id][record.exercise_type] = Math.round((totals[record.user_id][record.exercise_type] + n(record.amount) + Number.EPSILON) * 10) / 10;
   });
   return totals;
 }
