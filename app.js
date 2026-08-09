@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
 // 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
-const SESSION_VERSION = '20260809-41';
+const SESSION_VERSION = '20260809-42';
 let authListener = null;
 let dailyLogoutTimer = null;
 function koreaDateKey(now = new Date()) { const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now); const part = (type) => parts.find((item) => item.type === type)?.value; return `${part('year')}-${part('month')}-${part('day')}`; }
@@ -191,7 +191,7 @@ function renderRecords(root, records, allowDelete = false) {
 }
 function logMemberView(profile, eventType, attachmentUrl = null) {
   if (!state.user?.id || !profile?.id) return;
-  supabase.from('member_view_logs').insert({ viewer_id: state.user.id, subject_user_id: profile.id, attachment_url: attachmentUrl, event_type: eventType }).catch(() => {});
+  supabase.rpc('log_member_view', { p_subject_user_id: profile.id, p_attachment_url: attachmentUrl, p_event_type: eventType }).catch(() => {});
 }
 function openMemberRecords(profile, records, periodLabel) {
   const memberRecords = records.filter((record) => record.user_id === profile.id).slice().sort((a, b) => `${b.performed_on}${b.created_at || ''}`.localeCompare(`${a.performed_on}${a.created_at || ''}`));
