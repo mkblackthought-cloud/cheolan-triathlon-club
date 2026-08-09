@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
 // 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
-const SESSION_VERSION = '20260803-40';
+const SESSION_VERSION = '20260809-41';
 let authListener = null;
 let dailyLogoutTimer = null;
 function koreaDateKey(now = new Date()) { const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now); const part = (type) => parts.find((item) => item.type === type)?.value; return `${part('year')}-${part('month')}-${part('day')}`; }
@@ -189,15 +189,21 @@ function renderRecords(root, records, allowDelete = false) {
   $(root).innerHTML = records.map((r) => `<div class="record"><div class="record-icon">${kinds[r.exercise_type]?.[0] || '✓'}</div><div class="record-main"><b>${kinds[r.exercise_type]?.[1]} ${r.amount}${kinds[r.exercise_type]?.[2]}</b><small>${r.performed_on}${r.memo ? ` · ${esc(r.memo)}` : ''}</small></div><div class="record-score">+${baseScore(r)}점${allowDelete ? `<button class="btn outline small delete-record" data-id="${r.id}">삭제</button>` : ''}</div></div>`).join('');
   if (allowDelete) document.querySelectorAll('.delete-record').forEach((button) => { button.onclick = async () => { if (!confirm('이 운동 기록을 삭제할까요?')) return; const { error } = await supabase.from('workout_records').delete().eq('id', button.dataset.id); if (error) return toast(error.message); toast('운동 기록을 삭제했습니다.'); await loadData(); recordPage(); }; });
 }
+function logMemberView(profile, eventType, attachmentUrl = null) {
+  if (!state.user?.id || !profile?.id) return;
+  supabase.from('member_view_logs').insert({ viewer_id: state.user.id, subject_user_id: profile.id, attachment_url: attachmentUrl, event_type: eventType }).catch(() => {});
+}
 function openMemberRecords(profile, records, periodLabel) {
   const memberRecords = records.filter((record) => record.user_id === profile.id).slice().sort((a, b) => `${b.performed_on}${b.created_at || ''}`.localeCompare(`${a.performed_on}${a.created_at || ''}`));
   const modal = document.createElement('div');
   modal.className = 'member-record-modal';
-  modal.innerHTML = `<section class="member-record-dialog" role="dialog" aria-modal="true" aria-label="${esc(profile.display_name)} 운동기록"><header class="member-record-header"><div><h2>${esc(profile.display_name)} 운동기록</h2><p>${esc(periodLabel)} · ${memberRecords.length}건</p></div><button type="button" class="member-record-close" aria-label="닫기">×</button></header><div class="member-record-list">${memberRecords.map((record) => { const kind = kinds[record.exercise_type] || ['✓', '운동', '']; const photo = record.attachment_url ? `<a class="member-record-photo" href="${esc(record.attachment_url)}" target="_blank" rel="noopener"><img src="${esc(record.attachment_url)}" alt="${esc(profile.display_name)} 인증사진"></a>` : '<div class="member-record-photo empty" aria-label="첨부사진 없음">📷</div>'; return `<article class="member-record-item">${photo}<div class="member-record-detail"><b>${kind[0]} ${kind[1]} ${n(record.amount)}${kind[2]}</b><small>${record.performed_on}${record.memo ? ` · ${esc(record.memo)}` : ''}</small>${record.attachment_url ? `<a class="member-record-link" href="${esc(record.attachment_url)}" target="_blank" rel="noopener">인증사진 크게 보기</a>` : '<em>첨부사진 없음</em>'}</div></article>`; }).join('') || '<div class="empty">선택 기간의 운동기록이 없습니다.</div>'}</div></section>`;
+  modal.innerHTML = `<section class="member-record-dialog" role="dialog" aria-modal="true" aria-label="${esc(profile.display_name)} 운동기록"><header class="member-record-header"><div><h2>${esc(profile.display_name)} 운동기록</h2><p>${esc(periodLabel)} · ${memberRecords.length}건</p></div><button type="button" class="member-record-close" aria-label="닫기">×</button></header><div class="member-record-list">${memberRecords.map((record) => { const kind = kinds[record.exercise_type] || ['✓', '운동', '']; const photo = record.attachment_url ? `<a class="member-record-photo" data-attachment-url="${esc(record.attachment_url)}" href="${esc(record.attachment_url)}" target="_blank" rel="noopener"><img src="${esc(record.attachment_url)}" alt="${esc(profile.display_name)} 인증사진"></a>` : '<div class="member-record-photo empty" aria-label="첨부사진 없음">📷</div>'; return `<article class="member-record-item">${photo}<div class="member-record-detail"><b>${kind[0]} ${kind[1]} ${n(record.amount)}${kind[2]}</b><small>${record.performed_on}${record.memo ? ` · ${esc(record.memo)}` : ''}</small>${record.attachment_url ? `<a class="member-record-link" data-attachment-url="${esc(record.attachment_url)}" href="${esc(record.attachment_url)}" target="_blank" rel="noopener">인증사진 크게 보기</a>` : '<em>첨부사진 없음</em>'}</div></article>`; }).join('') || '<div class="empty">선택 기간의 운동기록이 없습니다.</div>'}</div></section>`;
   const close = () => modal.remove();
   modal.querySelector('.member-record-close').onclick = close;
   modal.onclick = (event) => { if (event.target === modal) close(); };
+  modal.querySelectorAll('[data-attachment-url]').forEach((link) => { link.onclick = () => logMemberView(profile, 'attachment_opened', link.dataset.attachmentUrl); });
   document.body.append(modal);
+  logMemberView(profile, 'member_records_opened');
 }
 function loginPage() {
   main.innerHTML = `<section class="login"><a class="brand" href="#"><img src="./club-logo.svg" alt="철안철인클럽 로고" style="width:42px;height:42px;border-radius:50%;object-fit:cover"><strong>철안철인클럽</strong></a><div class="card"><h2>운동기록 로그인</h2><form id="login-form"><div class="field"><label>아이디</label><input name="id" autocomplete="username" required></div><div class="field"><label>비밀번호</label><input name="password" type="password" autocomplete="current-password" required></div><button class="btn full">로그인</button></form><p class="hint">기존 이메일 계정도 그대로 로그인할 수 있습니다. 처음이신가요? <a href="#signup">회원가입</a></p></div></section>`;
