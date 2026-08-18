@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_eHs5l0kOSduUNeszDrjPEA_rRvUT6VG';
 // 외부 CDN 없이 Supabase REST API를 사용합니다. GitHub Pages에서도 안정적으로 실행됩니다.
 const SESSION_KEY = 'cheolan_triathlon_session';
 // 앱을 수정해 배포할 때 이 값을 바꾸면, 이전 로그인 토큰은 한 번만 초기화됩니다.
-const SESSION_VERSION = '20260814-44';
+const SESSION_VERSION = '20260818-45';
 let authListener = null;
 let dailyLogoutTimer = null;
 function koreaDateKey(now = new Date()) { const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now); const part = (type) => parts.find((item) => item.type === type)?.value; return `${part('year')}-${part('month')}-${part('day')}`; }
@@ -86,7 +86,8 @@ function competitionRanks(rows, valueOf) {
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 3200); }
 function nav(active) {
   const items = state.profile?.role === 'admin' ? [['me', '◎', '개인 점수'], ['team', '♜', '팀 점수']] : [['record', '✚', '기록입력'], ['me', '◎', '개인 점수'], ['team', '♜', '팀 점수']];
-  if (hasAdminAccess()) items.push(['admin', '⚙', '관리'], ['membersadmin', '☷', '회원 목록'], ['approvals', '✓', '가입승인'], ['analysis', '▥', '분석']);
+  items.push(['analysis', '▥', '분석']);
+  if (hasAdminAccess()) items.push(['admin', '⚙', '관리'], ['membersadmin', '☷', '회원 목록'], ['approvals', '✓', '가입승인']);
   const hasPendingApprovals = hasAdminAccess() && state.athletes.some((profile) => !profile.is_approved);
   $('#bottom-nav').innerHTML = items.map(([id, icon, label]) => `<a href="#${id}" class="${active === id ? 'active' : ''}"><span>${icon}</span>${label}${id === 'approvals' && hasPendingApprovals ? '<i class="nav-new-badge" aria-label="새 가입 승인 요청">N</i>' : ''}</a>`).join('');
 }
@@ -368,7 +369,7 @@ async function loadData() {
 async function route() {
   const { data: { session } } = await supabase.auth.getSession(); state.user = session?.user || null;
   if (!state.user) { $('#user-area').innerHTML = ''; $('#bottom-nav').innerHTML = ''; return location.hash === '#signup' ? signupPage() : loginPage(); }
-  try { await loadData(); topbar(); if (isDormantProfile(state.profile)) { nav(''); main.innerHTML = `<section class="page"><div class="hero"><h1>휴면 회원</h1><p>현재 이 계정은 휴면 처리되어 기록 입력과 순위 참여가 제한됩니다.</p></div></section>`; return; } if (!hasAdminAccess() && !state.profile.is_approved) return pendingPage(); const page = location.hash.slice(1) || 'record'; if (['admin', 'teamadmin', 'membersadmin', 'approvals', 'analysis'].includes(page) && !hasAdminAccess()) return recordPage(); ({ record: recordPage, me: mePage, team: teamPage, admin: adminPage, teamadmin: teamAdminPage, membersadmin: memberAdminPage, approvals: approvalsPage, analysis: analysisPage, password: passwordPage }[page] || recordPage)(); } catch (error) { main.innerHTML = `<section class="page"><div class="card"><h2>접속 오류</h2><p>${esc(error.message)}</p><button class="btn full" id="retry">다시 시도</button></div></section>`; $('#retry').onclick = route; }
+  try { await loadData(); topbar(); if (isDormantProfile(state.profile)) { nav(''); main.innerHTML = `<section class="page"><div class="hero"><h1>휴면 회원</h1><p>현재 이 계정은 휴면 처리되어 기록 입력과 순위 참여가 제한됩니다.</p></div></section>`; return; } if (!hasAdminAccess() && !state.profile.is_approved) return pendingPage(); const page = location.hash.slice(1) || 'record'; if (['admin', 'teamadmin', 'membersadmin', 'approvals'].includes(page) && !hasAdminAccess()) return recordPage(); ({ record: recordPage, me: mePage, team: teamPage, admin: adminPage, teamadmin: teamAdminPage, membersadmin: memberAdminPage, approvals: approvalsPage, analysis: analysisPage, password: passwordPage }[page] || recordPage)(); } catch (error) { main.innerHTML = `<section class="page"><div class="card"><h2>접속 오류</h2><p>${esc(error.message)}</p><button class="btn full" id="retry">다시 시도</button></div></section>`; $('#retry').onclick = route; }
 }
 window.addEventListener('hashchange', route);
 supabase.auth.onAuthStateChange(() => route());
